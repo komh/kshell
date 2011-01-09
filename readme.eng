@@ -1,0 +1,117 @@
+                             KShell Test Version
+                            ---------------------
+                            
+1. Introduction
+---------------
+  
+  This program is intended to help Input/Output of DBCS, especially Hangul, 
+on VIO of non-DBCS OS/2 environment.
+
+2. Development Environments  
+---------------------------
+  
+  - OS/2 Warp v4 for Korean with FixPak #15
+  
+  - EMX 0.9d fix #4 + gcc 2.8.1
+    
+3. Requirement
+--------------
+
+  - EMX 0.9d fix #4 runtime
+  - Appropriate fonts
+  - IME for input DBCS, such as KIME
+
+4. Test Environmet
+------------------
+
+  This program is tested on OS/2 Warp v4 for Korean with FixPak #15 and Warp 
+Server for e-Business with FixPak #3.
+
+5. Features
+-----------
+
+  - Using redirection of Input/Output of VIO program, enable DBCS Input/Output
+    
+  - Any fonts other than System font can be used on VIO. But only fixed width 
+    fonts are allowed.
+  
+  - Codepages other than primary or secondary codepage can be specified.
+  
+6. Installation
+---------------
+
+  Put kshell.exe and viodmn.exe into any directory.
+  
+7. Usage
+--------
+
+7-1. Menu(System Menu)
+----------------------
+
+  Codepage... : Specify codepage.
+  Font...     : Specify font and size.
+
+8. Limits/Know bugs
+
+  - Only support keyboard input and VIO output. So mouse and clipboard are 
+    not supported.
+
+  - Ctrl-Break, Ctrl-C, Ctrl-S, Ctrl-P, and so on are not supported.
+  
+  - Colors of VIO does not match with those of KShell.
+  
+  - Sometimes, a part of background is not erased.
+  
+  - Due to polling method, output efficiency is poor and CPU load is high.
+
+9. TODOs...
+-----------
+
+  - Use VioRegister function instead of polling
+  
+  - Support mouse and clipboard
+  
+  - Support VIO colors
+  
+  - Support special key combination such as Ctrl-C.
+  
+10. History
+---------------
+
+  - test version ( 2005/01/19 )
+    initial version.
+    
+11. Compilation
+---------------
+ 
+  You have to EMX 0.9d fix #4 + gcc 2.8.1 and nmake to compile KShell. nmake 
+is shipped with OS/2 ToolKit. If you don't have it, you can use the following.
+
+      http://hobbes.nmsu.edu/pub/os2/dev/util/nmakew.zip
+
+  Now, enter 'nmake' on command prompt.
+  
+12. Modules
+-------------
+
+  kshell.exe : PM program that display VIO buffer on PM and pass key on PM to 
+               VIO.
+
+  viodmn.exe : VIO full-screen program that launch a command shell specified 
+               by 'COMSPEC', pass VIO buffer to kshell.exe, and translate key 
+               on PM to key on VIO. 
+
+               !!! viodmn.exe should be started by kshell.exe !!!
+
+  test.exe   : Key test program on VIO.
+  
+13. Contact
+-----------
+
+  e-mail : komh@chollian.net
+  ICQ    : 124861818
+  MSN    : komh@chollian.net
+  IRC    : lvzuufx, #os2 at HANIRC(irc.hanirc.org)
+               
+                                                       KO Myung-Hun
+               
