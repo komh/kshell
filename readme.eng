@@ -13,7 +13,11 @@ on VIO of non-DBCS OS/2 environment.
   - OS/2 Warp v4 for Korean with FixPak #15
   
   - EMX 0.9d fix #4 + gcc 2.8.1
-    
+
+  - VACPP v3.0.8
+
+  - ALP( OS/2 ToolKit 4.5 )
+
 3. Requirement
 --------------
 
@@ -30,7 +34,9 @@ Server for e-Business with FixPak #3.
 5. Features
 -----------
 
-  - Using redirection of Input/Output of VIO program, enable DBCS Input/Output
+  - Redirection of VIO output to PM window, hooking of OS/2 Base Video
+    Subsystem, and transfer key sequences of PM window to VIO, using keyboard
+    monitor.
     
   - Any fonts other than System font can be used on VIO. But only fixed width 
     fonts are allowed.
@@ -40,7 +46,7 @@ Server for e-Business with FixPak #3.
 6. Installation
 ---------------
 
-  Put kshell.exe and viodmn.exe into any directory.
+  Put kshell.exe, viodmn.exe and viosub.dll into any directory.
   
 7. Usage
 --------
@@ -51,32 +57,41 @@ Server for e-Business with FixPak #3.
   Codepage... : Specify codepage.
   Font...     : Specify font and size.
 
-8. Limits/Know bugs
+8. Limits/Known bugs
 
   - Only support keyboard input and VIO output. So mouse and clipboard are 
     not supported.
 
   - Ctrl-Break, Ctrl-C, Ctrl-S, Ctrl-P, and so on are not supported.
   
-  - Colors of VIO does not match with those of KShell.
-  
   - Sometimes, a part of background is not erased.
   
-  - Due to polling method, output efficiency is poor and CPU load is high.
+  - When scrolling, other window cover KShell window, that part of KShell
+    window is not scrolled correctly( due to usage of GpiBitBlt(). finding
+    more sophisticated method )
+
+  - HyperView( HV.EXE ) cannot be launched( Analyzing causes. T.T ).
 
 9. TODOs...
 -----------
 
-  - Use VioRegister function instead of polling
-  
   - Support mouse and clipboard
-  
-  - Support VIO colors
   
   - Support special key combination such as Ctrl-C.
   
 10. History
 ---------------
+
+  - v0.1.0 ( 2005/02/28 )
+    .Use VioRegister() instead of polling method. As a result,
+     Output efficiency is improved.
+    .VIO colors are correct.
+    .Broken DBCS chars are displayed when inputting consecutive DBCS chars.
+    .If font size is not changed even though font face is changed, window is
+     not updated. fixed.
+    .In case of bitmap font such as MINCHO, it is not retrieved on next time.
+     fixed.
+    .The unit of font size is changed from pel to pt.
 
   - test version ( 2005/01/19 )
     initial version.
@@ -84,11 +99,8 @@ Server for e-Business with FixPak #3.
 11. Compilation
 ---------------
  
-  You have to EMX 0.9d fix #4 + gcc 2.8.1 and nmake to compile KShell. nmake 
-is shipped with OS/2 ToolKit. If you don't have it, you can use the following.
-
-      http://hobbes.nmsu.edu/pub/os2/dev/util/nmakew.zip
-
+  You have to EMX 0.9d fix #4 + gcc 2.8.1, VACPP 3.0.8 and ALP to compile
+KShell.
   Now, enter 'nmake' on command prompt.
   
 12. Modules
@@ -103,9 +115,16 @@ is shipped with OS/2 ToolKit. If you don't have it, you can use the following.
 
                !!! viodmn.exe should be started by kshell.exe !!!
 
+  viosub.dll : DLL to hook OS/2 Base Video Subsystem.
+
   test.exe   : Key test program on VIO.
   
-13. Contact
+13. Thanks to...
+----------------
+
+  nickk : provided me with examples for VioRegister().
+
+14. Contact
 -----------
 
   e-mail : komh@chollian.net
