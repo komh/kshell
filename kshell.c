@@ -161,7 +161,9 @@ static VOID setCursor( HWND hwnd, BOOL fCreate )
     WinShowCursor( hwnd, FALSE );
     WinDestroyCursor( hwnd );
 
-    if( fCreate && ( pKShellData->ci.attr != ( USHORT )-1 ))
+    if(( pKShellData->ci.attr != ( USHORT )-1 ) &&
+       ( WinQueryFocus( HWND_DESKTOP ) == hwnd ) &&
+       fCreate )
     {
         USHORT usCellHeight = m_vmi.vres / m_vmi.row;
         USHORT usStart = m_lCharHeight * ( pKShellData->ci.yStart + 1 ) / usCellHeight;
