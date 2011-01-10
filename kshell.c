@@ -1,11 +1,7 @@
 #define INCL_VIO
-#define INCL_DOSNLS
-#define INCL_DOSPROCESS
-#define INCL_DOSMODULEMGR
+#define INCL_DOS
 #define INCL_DOSERRORS
-#define INCL_DOSMEMMGR
-#define INCL_DOSSESMGR
-#define INCL_DOSERRORS
+#define INCL_DEV
 #define INCL_WIN
 #define INCL_GPI
 #include <os2.h>
@@ -17,6 +13,7 @@
 
 #include "kshell.h"
 #include "viodmn.h"
+#include "viosub.h"
 
 #define TID_KSHELL  ( TID_USERMAX - 1 )
 
@@ -24,27 +21,42 @@
 #define PRF_KEY_CP      "CODEPAGE"
 #define PRF_KEY_FONT    "FONT"
 #define PRF_KEY_SIZE    "SIZE"
+#define PRF_KEY_HEIGHT  "HEIGHT"
+#define PRF_KEY_WIDTH   "WIDTH"
 
 #define DEFAULT_CODEPAGE    0
 #define DEFAULT_FONT_FACE   "GulimChe"
-#define DEFAULT_CHAR_PELS   16L
+#define DEFAULT_CHAR_PTS    12
+#define DEFAULT_CHAR_HEIGHT 16
+#define DEFAULT_CHAR_WIDTH  8
 
 static VIOMODEINFO  m_vmi;
 
 static FATTRS   m_fat;
 static FIXED    m_fxPointSize;
+static ULONG    m_ulHoriFontRes;
+static ULONG    m_ulVertFontRes;
 static ULONG    m_lCharWidth;
 static ULONG    m_lCharHeight;
 static ULONG    m_lMaxDescender;
 
 static PBYTE    m_pVioBuf = NULL;
-static CHAR     m_szPipeName[ PIPE_NAME_LEN ];
+static CHAR     m_szPipeName[ PIPE_VIODMN_LEN ];
 static CHAR     m_szPid[ 20 ];
+
+static HEV      m_hevVioDmn;
 
 static PID      m_pidVioDmn;
 static ULONG    m_sidVioDmn;
 
 static BOOL m_afDBCSLeadByte[ 256 ] = { FALSE, };
+static BOOL m_fDBCSEnv = FALSE;
+
+#define isDBCSEnv() ( m_fDBCSEnv )
+
+static ULONG    m_ulSGID = ( ULONG )-1;
+static HPIPE    m_hpipeVioSub = NULLHANDLE;
+static TID      m_tidPipeThread = 0;
 
 static BOOL init( VOID );
 static VOID done( VOID );
@@ -59,7 +71,12 @@ static BOOL callVioDmn( USHORT usMsg );
 static BOOL startVioDmn( VOID );
 static VOID waitVioDmn( VOID );
 
-MRESULT EXPENTRY windowProc( HWND, ULONG, MPARAM, MPARAM );
+static VOID initPipeThreadForVioSub( HWND hwnd );
+static VOID donePipeThreadForVioSub( VOID );
+
+static VOID updateWindow( HWND hwnd, PRECTL prcl );
+
+static MRESULT EXPENTRY windowProc( HWND, ULONG, MPARAM, MPARAM );
 
 INT main( VOID )
 {
@@ -69,6 +86,7 @@ INT main( VOID )
     HWND    hwndFrame;
     HWND    hwndClient;
     QMSG    qm;
+
     int     result = 0;
 
     init();
@@ -88,6 +106,14 @@ INT main( VOID )
     }
 
     memcpy( &m_vmi, m_pVioBuf, sizeof( VIOMODEINFO ));
+
+    if( callVioDmn( MSG_SGID ))
+    {
+        result = 3;
+        goto main_exit;
+    }
+
+    memcpy( &m_ulSGID, m_pVioBuf, sizeof( ULONG ));
 
     hab = WinInitialize( 0 );
 
@@ -115,15 +141,17 @@ INT main( VOID )
                 &hwndClient                 // client window handle
                 );
 
-    if( hwndFrame != NULLHANDLE )
-    {
-        initFrame( hwndFrame );
+    // assume not failing
+    initPipeThreadForVioSub( hwndClient );
 
-        while( WinGetMsg( hab, &qm, NULLHANDLE, 0, 0 ))
-            WinDispatchMsg( hab, &qm );
+    initFrame( hwndFrame );
 
-        WinDestroyWindow( hwndFrame );
-    }
+    while( WinGetMsg( hab, &qm, NULLHANDLE, 0, 0 ))
+        WinDispatchMsg( hab, &qm );
+
+    donePipeThreadForVioSub();
+
+    WinDestroyWindow( hwndFrame );
 
     WinDestroyMsgQueue( hmq );
     WinTerminate( hab );
@@ -180,6 +208,126 @@ static VOID setCursor( HWND hwnd, BOOL fCreate )
     }
 }
 
+static VOID setAttr( HPS hps, UCHAR uchAttr )
+{
+    static int aiColorTable[ 16 ] = {
+            CLR_BLACK,
+            CLR_DARKBLUE,
+            CLR_DARKGREEN,
+            CLR_DARKCYAN,
+            CLR_DARKRED,
+            CLR_DARKPINK,
+            CLR_BROWN,
+            CLR_PALEGRAY,
+            CLR_DARKGRAY,
+            CLR_BLUE,
+            CLR_GREEN,
+            CLR_CYAN,
+            CLR_RED,
+            CLR_PINK,
+            CLR_YELLOW,
+            CLR_WHITE
+    };
+
+    GpiSetColor( hps, aiColorTable[ uchAttr & 0x0F ]);
+    GpiSetBackColor( hps, aiColorTable[ ( uchAttr & 0xF0 ) >> 4 ]);
+}
+
+VOID updateWindow( HWND hwnd, PRECTL prcl )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    HPS     hps;
+    SIZEF   sizef;
+    int     xStart, yStart;
+    int     xEnd, yEnd;
+
+    setCursor( hwnd, FALSE );
+
+    hps = WinGetPS( hwnd );
+
+    xStart = X_Win2Vio( prcl->xLeft );
+    yStart = Y_Win2Vio( prcl->yTop - 1 );
+    xEnd = X_Win2Vio( prcl->xRight - 1 );
+    yEnd = Y_Win2Vio( prcl->yBottom );
+
+    GpiCreateLogFont( hps, NULL, 1L, &m_fat );
+
+    GpiSetCharSet( hps, 1L );
+
+    sizef.cx = m_fxPointSize * m_ulHoriFontRes / 72;
+    sizef.cy = m_fxPointSize * m_ulVertFontRes / 72;
+
+    GpiSetCharBox( hps, &sizef );
+    GpiSetBackMix( hps, BM_OVERPAINT );
+
+    {
+        int     x, y;
+        POINTL  ptl;
+        PUSHORT pVioBufShell;
+        USHORT  usChar;
+        USHORT  usLen;
+
+        ptl.y = ( m_vmi.row - yStart - 1 ) * m_lCharHeight + m_lMaxDescender;
+        for( y = yStart; y <= yEnd; y++ )
+        {
+            pVioBufShell = (( PUSHORT )pKShellData->pVioBuf )
+                            + ( y * m_vmi.col );
+            if( isDBCSEnv())
+            {
+
+                for( x = 0; x < xStart; x++, pVioBufShell++ )
+                {
+                    if( isDBCSLeadByte( LOUCHAR( *pVioBufShell )))
+                    {
+                        x++;
+                        pVioBufShell++;
+                    }
+                }
+
+                if( xStart < x ) // dbcs trail byte ?
+                {
+                    // to dbcs lead byte
+                    xStart--;
+                    pVioBufShell -= 2;
+                }
+            }
+            else
+                pVioBufShell += xStart;
+
+            ptl.x = xStart * m_lCharWidth;
+
+            for( x = xStart; x <= xEnd; x++ )
+            {
+                setAttr( hps, HIUCHAR( *pVioBufShell ) );
+
+                usChar = LOUCHAR( *pVioBufShell );
+                if( isDBCSLeadByte(( UCHAR )usChar ))
+                {
+                    pVioBufShell++;
+                    usChar = MAKEUSHORT( usChar, LOUCHAR( *pVioBufShell ));
+                    usLen = 2;
+                }
+                else
+                    usLen = 1;
+
+                GpiCharStringAt( hps, &ptl, usLen, ( PCH )&usChar );
+
+                ptl.x += m_lCharWidth * usLen;
+
+                pVioBufShell++;
+            }
+
+            ptl.y -= m_lCharHeight;
+        }
+    }
+
+    WinReleasePS( hps );
+
+    setCursor( hwnd, TRUE );
+
+}
+
 MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
@@ -191,29 +339,24 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             pKShellData = ( PKSHELLDATA )malloc( sizeof( KSHELLDATA ));
             memset( pKShellData, 0, sizeof( KSHELLDATA ));
 
-            pKShellData->pVioBuf = malloc( KSHELL_BUFSIZE );
-            memset( pKShellData->pVioBuf, 0, sizeof( KSHELL_BUFSIZE ));
+            WinSetWindowPtr( hwnd, 0, pKShellData );
 
-            if( callVioDmn( MSG_DUMP ))
+            pKShellData->pVioBuf = malloc( VIO_SCRSIZE );
+            memset( pKShellData->pVioBuf, 0, sizeof( VIO_SCRSIZE ));
+
+            if( callVioDmn( MSG_CURINFO ))
             {
                 WinPostMsg( hwnd, WM_QUIT, 0, 0 );
                 return 0;
             }
 
-            memcpy( pKShellData->pVioBuf, m_pVioBuf, VIO_CISIZE );
-            memcpy( pKShellData->pVioBuf, m_pVioBuf + VIO_CISIZE, VIO_SCRSIZE );
-
-            WinStartTimer( WinQueryAnchorBlock( hwnd ), hwnd, TID_KSHELL, 100 );
-
-            WinSetWindowPtr( hwnd, 0, pKShellData );
+            memcpy( pKShellData, m_pVioBuf, VIO_CISIZE );
 
             return 0;
         }
 
         case WM_DESTROY :
         {
-            WinStopTimer( WinQueryAnchorBlock( hwnd ), hwnd, TID_KSHELL );
-
             free( pKShellData->pVioBuf );
             free( pKShellData );
 
@@ -231,75 +374,6 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
         case WM_SETFOCUS :
             setCursor( hwnd, ( BOOL )mp2 );
             break;
-
-        case WM_TIMER :
-        {
-            PUSHORT pVioBufMem;
-            PUSHORT pVioBufShell;
-            int     x, y;
-            int     xStart, xEnd;
-            RECTL   rcl;
-
-            if( SHORT1FROMMP( mp1 ) != TID_KSHELL )
-                break;
-
-            if( callVioDmn( MSG_DUMP ))
-                WinPostMsg( hwnd, WM_QUIT, 0, 0 );
-
-            if( memcmp( pKShellData, m_pVioBuf, VIO_CISIZE ) != 0 )
-            {
-                memcpy( pKShellData, m_pVioBuf, VIO_CISIZE );
-
-                if( WinQueryFocus( HWND_DESKTOP ) == hwnd )
-                    setCursor( hwnd, TRUE );
-            }
-
-            pVioBufMem = ( PUSHORT )( m_pVioBuf + VIO_CISIZE );
-            pVioBufShell = ( PUSHORT )pKShellData->pVioBuf;
-
-            for( y = 0; y < m_vmi.row; y++ )
-            {
-                xStart = xEnd = -1;
-
-                for( x = 0; x < m_vmi.col; x++ )
-                {
-                    if( *pVioBufShell != *pVioBufMem )
-                    {
-                        *pVioBufShell = *pVioBufMem;
-
-                        if( xStart == -1 )
-                            xStart = x;
-
-                        xEnd = x;
-                    }
-                    else if( xStart != -1 )
-                    {
-                        rcl.xLeft = xStart;
-                        rcl.yBottom = rcl.yTop = y;
-                        rcl.xRight = xEnd;
-                        convertVio2Win( &rcl );
-                        WinInvalidateRect( hwnd, &rcl, FALSE );
-
-                        xStart = xEnd = -1;
-                    }
-
-                    pVioBufShell++;
-                    pVioBufMem++;
-                }
-
-                if( xStart != -1 )
-                {
-                    rcl.xLeft = xStart;
-                    rcl.yBottom = rcl.yTop = y;
-                    rcl.xRight = xEnd;
-                    convertVio2Win( &rcl );
-                    WinInvalidateRect( hwnd, &rcl, FALSE );
-                }
-            }
-
-            return 0;
-        }
-
 #if 0
         case WM_ERASEBACKGROUND :
         {
@@ -313,90 +387,13 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 #endif
         case WM_PAINT :
         {
-            RECTL   rcl;
             HPS     hps;
-            SIZEF   sizef;
-            int     xStart, yStart;
-            int     xEnd, yEnd;
+            RECTL   rcl;
 
             hps = WinBeginPaint( hwnd, NULLHANDLE, &rcl );
 
-            if( WinIsRectEmpty( WinQueryAnchorBlock( hwnd ), &rcl ))
-            {
-                WinEndPaint( hps );
-
-                return 0;
-            }
-
-            xStart = X_Win2Vio( rcl.xLeft );
-            yStart = Y_Win2Vio( rcl.yTop - 1 );
-            xEnd = X_Win2Vio( rcl.xRight - 1 );
-            yEnd = Y_Win2Vio( rcl.yBottom );
-
-#if 0
-            if( xStart < 0 )
-                xStart = 0;
-
-            if( yStart < 0 )
-                yStart = 0;
-
-            if( xEnd >= m_vmi.col )
-                xEnd = m_vmi.col - 1;
-
-            if( yEnd >= m_vmi.row )
-                yEnd = m_vmi.row - 1;
-#endif
-            GpiCreateLogFont( hps, NULL, 1L, &m_fat );
-
-            GpiSetCharSet( hps, 1L );
-
-            sizef.cx = m_fxPointSize;
-            sizef.cy = m_fxPointSize;
-
-            GpiSetCharBox( hps, &sizef );
-            GpiSetBackMix( hps, BM_OVERPAINT );
-
-            {
-                int     x, y;
-                POINTL  ptl;
-                PUSHORT pVioBufShell;
-                UCHAR   uchAttr;
-                USHORT  usChar;
-                USHORT  usLen;
-
-                ptl.y = ( m_vmi.row - yStart - 1 ) * m_lCharHeight + m_lMaxDescender;
-                for( y = yStart; y <= yEnd; y++ )
-                {
-                    ptl.x = xStart * m_lCharWidth;
-                    pVioBufShell = (( PUSHORT )pKShellData->pVioBuf )
-                                    + ( y * m_vmi.col ) + xStart;
-
-                    for( x = xStart; x <= xEnd; x++ )
-                    {
-                        uchAttr = HIUCHAR( *pVioBufShell );
-                        GpiSetColor( hps, ( uchAttr & 0xF0 ) >> 4 );
-                        GpiSetBackColor( hps, uchAttr & 0x0F );
-
-                        usChar = LOUCHAR( *pVioBufShell );
-                        if( isDBCSLeadByte(( UCHAR )usChar ))
-                        {
-                            pVioBufShell++;
-                            usChar = MAKEUSHORT( usChar, LOUCHAR( *pVioBufShell ));
-                            usLen = 2;
-                        }
-                        else
-                            usLen = 1;
-
-                        GpiCharStringAt( hps, &ptl, usLen, ( PCH )&usChar );
-
-                        ptl.x += m_lCharWidth * usLen;
-
-                        pVioBufShell++;
-                    }
-
-                    ptl.y -= m_lCharHeight;
-                }
-            }
+            if( !WinIsRectEmpty( WinQueryAnchorBlock( hwnd ), &rcl ))
+                updateWindow( hwnd, &rcl );
 
             WinEndPaint( hps );
 
@@ -532,16 +529,24 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 
                     if( hwndFontDlg &&( fd.lReturn == DID_OK ))
                     {
-                        CHAR    szPointSize[ 10 ];
+                        CHAR    szNum[ 10 ];
 
                         memcpy( &m_fat, &fd.fAttrs, sizeof( FATTRS ));
                         m_fxPointSize = fd.fxPointSize;
-                        _itoa( FIXEDINT( m_fxPointSize ), szPointSize, 10 );
 
                         PrfWriteProfileString( HINI_USERPROFILE, PRF_APP, PRF_KEY_FONT, m_fat.szFacename );
-                        PrfWriteProfileString( HINI_USERPROFILE, PRF_APP, PRF_KEY_SIZE, szPointSize );
+
+                        _itoa( FIXEDINT( m_fxPointSize ), szNum, 10 );
+                        PrfWriteProfileString( HINI_USERPROFILE, PRF_APP, PRF_KEY_SIZE, szNum );
+
+                        _ltoa( m_fat.lMaxBaselineExt , szNum, 10 );
+                        PrfWriteProfileString( HINI_USERPROFILE, PRF_APP, PRF_KEY_HEIGHT, szNum );
+
+                        _ltoa( m_fat.lAveCharWidth, szNum, 10 );
+                        PrfWriteProfileString( HINI_USERPROFILE, PRF_APP, PRF_KEY_WIDTH, szNum );
 
                         initFrame( WinQueryWindow( hwnd, QW_PARENT ));
+                        WinInvalidateRect( hwnd, NULL, FALSE );
                         setCursor( hwnd, TRUE );
                     }
 
@@ -558,46 +563,67 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 BOOL init( VOID )
 {
     PPIB    ppib;
-    CHAR    szName[ KSHELL_MEMNAME_LEN ];
+    CHAR    szSem[ SEM_KSHELL_VIODMN_LEN ];
+    CHAR    szMem[ MEM_KSHELL_VIOBUF_LEN ];
     LONG    lResult;
+    HPS     hps;
+    HDC     hdc;
 
     DosGetInfoBlocks( NULL, &ppib );
 
     _ultoa( ppib->pib_ulpid, m_szPid, 16 );
 
-    strcpy( szName, KSHELL_VIOBUF_BASE );
-    strcat( szName, m_szPid );
+    strcpy( szMem, MEM_KSHELL_VIOBUF_BASE );
+    strcat( szMem, m_szPid );
 
-    DosAllocSharedMem(( PPVOID )&m_pVioBuf, szName, KSHELL_BUFSIZE,
+    DosAllocSharedMem(( PPVOID )&m_pVioBuf, szMem, KSHELL_BUFSIZE,
                       PAG_READ | PAG_WRITE | PAG_COMMIT );
 
-    strcpy( m_szPipeName, PIPE_VIO_DUMP_BASE );
+    strcpy( m_szPipeName, PIPE_VIODMN_BASE );
     strcat( m_szPipeName, m_szPid );
 
+    strcpy( szSem, SEM_KSHELL_VIODMN_BASE );
+    strcat( szSem, m_szPid );
+
+    DosCreateEventSem( szSem, &m_hevVioDmn, DC_SEM_SHARED, 0 );
+
     srandom( time( NULL ));
+
+    PrfQueryProfileString( HINI_USERPROFILE, PRF_APP, PRF_KEY_FONT, DEFAULT_FONT_FACE, m_fat.szFacename, FACESIZE );
 
     m_fat.usRecordLength = sizeof( FATTRS );
     m_fat.fsSelection = 0;
     m_fat.lMatch = 0L;
     m_fat.idRegistry = 0;
     m_fat.usCodePage = PrfQueryProfileInt( HINI_USERPROFILE, PRF_APP, PRF_KEY_CP, DEFAULT_CODEPAGE );
-    m_fat.lMaxBaselineExt = 0;
-    m_fat.lAveCharWidth = 0;
+
+    lResult = PrfQueryProfileInt( HINI_USERPROFILE, PRF_APP, PRF_KEY_HEIGHT, DEFAULT_CHAR_HEIGHT );
+    m_fat.lMaxBaselineExt = lResult ? lResult : DEFAULT_CHAR_HEIGHT;
+
+    lResult = PrfQueryProfileInt( HINI_USERPROFILE, PRF_APP, PRF_KEY_WIDTH, DEFAULT_CHAR_WIDTH );
+    m_fat.lAveCharWidth = lResult ? lResult : DEFAULT_CHAR_WIDTH;
+
     m_fat.fsType = FATTR_TYPE_MBCS | FATTR_TYPE_DBCS;
     m_fat.fsFontUse = FATTR_FONTUSE_NOMIX;
 
-    PrfQueryProfileString( HINI_USERPROFILE, PRF_APP, PRF_KEY_FONT, DEFAULT_FONT_FACE, m_fat.szFacename, FACESIZE );
-
-    lResult = PrfQueryProfileInt( HINI_USERPROFILE, PRF_APP, PRF_KEY_SIZE, DEFAULT_CHAR_PELS );
-    m_fxPointSize = MAKEFIXED( lResult ? lResult : DEFAULT_CHAR_PELS, 0 );
+    lResult = PrfQueryProfileInt( HINI_USERPROFILE, PRF_APP, PRF_KEY_SIZE, DEFAULT_CHAR_PTS );
+    m_fxPointSize = MAKEFIXED( lResult ? lResult : DEFAULT_CHAR_PTS, 0 );
 
     initDBCSEnv( m_fat.usCodePage );
+
+    hps = WinGetScreenPS( HWND_DESKTOP );
+    hdc = GpiQueryDevice( hps );
+    DevQueryCaps( hdc, CAPS_HORIZONTAL_FONT_RES, 1, &m_ulHoriFontRes );
+    DevQueryCaps( hdc, CAPS_VERTICAL_FONT_RES, 1, &m_ulVertFontRes );
+    WinReleasePS( hps );
 
     return TRUE;
 }
 
 VOID done( VOID )
 {
+    DosCloseEventSem( m_hevVioDmn );
+
     DosFreeMem( m_pVioBuf );
 }
 
@@ -615,7 +641,10 @@ VOID initDBCSEnv( USHORT usCP )
         for( i = 0; uchDBCSInfo[ i ] != 0 || uchDBCSInfo[ i + 1 ] != 0; i += 2 )
         {
             for( j = uchDBCSInfo[ i ]; j <= uchDBCSInfo[ i + 1 ]; j++ )
+            {
                 m_afDBCSLeadByte[ j ] = TRUE;
+                m_fDBCSEnv = TRUE;
+            }
         }
     }
 }
@@ -689,8 +718,8 @@ VOID initFrame( HWND hwndFrame )
     GpiCreateLogFont( hps, NULL, 1L, &m_fat );
     GpiSetCharSet( hps, 1L );
 
-    sizef.cx = m_fxPointSize;
-    sizef.cy = m_fxPointSize;
+    sizef.cx = m_fxPointSize * m_ulHoriFontRes / 72;
+    sizef.cy = m_fxPointSize * m_ulVertFontRes / 72;
 
     GpiSetCharBox( hps, &sizef );
 
@@ -740,15 +769,10 @@ BOOL    callVioDmn( USHORT usMsg )
     if( fQuit )
         return TRUE;
 
-    do
-    {
-        DosCallNPipe(
-                m_szPipeName,
-                &usMsg, sizeof( usMsg ),
-                &usAck, sizeof( usAck ), &cbActual,
-                10000L );
-        DosSleep( 1 );
-    } while(( usAck != MSG_DONE ) && ( usAck != MSG_QUIT ));
+    while( DosCallNPipe( m_szPipeName,
+                      &usMsg, sizeof( usMsg ),
+                      &usAck, sizeof( usAck ), &cbActual,
+                      10000L ) == ERROR_INTERRUPT );
 
     if( usAck == MSG_QUIT )
         fQuit = TRUE;
@@ -788,7 +812,654 @@ BOOL startVioDmn( VOID )
 
 VOID waitVioDmn( VOID )
 {
-    while( DosWaitNPipe( m_szPipeName, ( ULONG )-1 ) == ERROR_INTERRUPT );
+    while( DosWaitEventSem( m_hevVioDmn, SEM_INDEFINITE_WAIT ) == ERROR_INTERRUPT );
 }
 
+static VOID pipeThread( void *arg )
+{
+    HWND        hwnd = ( HWND )arg;
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
 
+    USHORT usIndex;
+    ULONG  cbActual;
+
+    do
+    {
+        DosConnectNPipe( m_hpipeVioSub );
+
+        DosRead( m_hpipeVioSub, &usIndex, sizeof( USHORT ), &cbActual );
+
+        switch( usIndex )
+        {
+            //case VI_VIOSHOWBUF :
+            case VI_VIOSETCURPOS :
+            {
+                DosRead( m_hpipeVioSub, &pKShellData->x, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &pKShellData->y, sizeof( USHORT ), &cbActual );
+
+                setCursor( hwnd, TRUE );
+                break;
+            }
+
+            case VI_VIOSETCURTYPE :
+            {
+                VIOCURSORINFO vci;
+                USHORT usCellHeight = m_vmi.vres / m_vmi.row;
+
+                DosRead( m_hpipeVioSub, &vci, sizeof( VIOCURSORINFO ), &cbActual );
+
+                if(( SHORT )vci.yStart < 0 )
+                    vci.yStart = ( usCellHeight * ( -( SHORT )vci.yStart ) + 99 ) / 100 - 1;
+
+                if(( SHORT )vci.cEnd < 0 )
+                    vci.cEnd = ( usCellHeight * ( -( SHORT )vci.cEnd ) + 99 ) / 100 - 1;
+
+                if( vci.yStart >= usCellHeight )
+                    vci.yStart = usCellHeight - 1;
+
+                if( vci.cEnd > 31 )
+                    vci.cEnd = 31;
+
+                memcpy( &pKShellData->ci, &vci, sizeof( VIOCURSORINFO ));
+
+                setCursor( hwnd, TRUE );
+                break;
+            }
+
+            //case VI_VIOSETMODE :
+            case VI_VIOWRTNCHAR :
+            {
+                USHORT  usCol;
+                USHORT  usRow;
+                USHORT  usTimes;
+                CHAR    ch;
+                PUSHORT pBuf;
+                INT     x, y;
+                RECTL   rcl;
+
+                DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usTimes, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &ch, sizeof( CHAR ), &cbActual );
+
+                pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( usRow * m_vmi.col ) + usCol;
+                for( y = usRow; ( y < m_vmi.row ) && ( usTimes > 0 ); y++ )
+                {
+                    for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes--, pBuf++ )
+                    {
+                       *pBuf = MAKEUSHORT( ch, HIUCHAR( *pBuf ));
+                    }
+
+                    rcl.xLeft = usCol;
+                    rcl.yBottom = rcl.yTop = y;
+                    rcl.xRight = x - 1;
+                    convertVio2Win( &rcl );
+                    updateWindow( hwnd, &rcl );
+
+                    usCol = 0;
+                }
+                break;
+            }
+
+            case VI_VIOWRTNATTR :
+            {
+                USHORT  usCol;
+                USHORT  usRow;
+                USHORT  usTimes;
+                BYTE    bAttr;
+                PUSHORT pBuf;
+                INT     x, y;
+                RECTL   rcl;
+
+                DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usTimes, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &bAttr, sizeof( BYTE ), &cbActual );
+
+                pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( usRow * m_vmi.col ) + usCol;
+                for( y = usRow; ( y < m_vmi.row ) && ( usTimes > 0 ); y++ )
+                {
+                    for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes--, pBuf++ )
+                    {
+                       *pBuf = MAKEUSHORT( LOUCHAR( *pBuf ), bAttr );
+                    }
+
+                    rcl.xLeft = usCol;
+                    rcl.yBottom = rcl.yTop = y;
+                    rcl.xRight = x - 1;
+                    convertVio2Win( &rcl );
+                    updateWindow( hwnd, &rcl );
+
+                    usCol = 0;
+                }
+                break;
+            }
+
+            case VI_VIOWRTNCELL :
+            {
+                USHORT  usCol;
+                USHORT  usRow;
+                USHORT  usTimes;
+                USHORT  usCell;
+                PUSHORT pBuf;
+                INT     x, y;
+                RECTL   rcl;
+
+                DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usTimes, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * VIO_CELLSIZE, &cbActual );
+
+                pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( usRow * m_vmi.col ) + usCol;
+                for( y = usRow; ( y < m_vmi.row ) && ( usTimes > 0 ); y++ )
+                {
+                    for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes-- )
+                    {
+                       *pBuf++ = usCell;
+                    }
+
+                    rcl.xLeft = usCol;
+                    rcl.yBottom = rcl.yTop = y;
+                    rcl.xRight = x - 1;
+                    convertVio2Win( &rcl );
+                    updateWindow( hwnd, &rcl );
+
+                    usCol = 0;
+                }
+                break;
+            }
+
+            case VI_VIOWRTCHARSTR :
+            {
+                USHORT  usCol;
+                USHORT  usRow;
+                USHORT  usLen;
+                PCH     pchCharStr, pch;
+                PUSHORT pBuf;
+                INT     x, y;
+                RECTL   rcl;
+
+                DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usLen, sizeof( USHORT ), &cbActual );
+
+                pchCharStr = malloc( usLen );
+                DosRead( m_hpipeVioSub, pchCharStr, usLen, &cbActual );
+
+                pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( usRow * m_vmi.col ) + usCol;
+                pch = pchCharStr;
+                for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
+                {
+                    for( x = usCol; ( x < m_vmi.col ) && ( usLen > 0 ); x++, usLen--, pBuf++ )
+                    {
+                       *pBuf = MAKEUSHORT( *pch++, HIUCHAR( *pBuf ));
+                    }
+
+                    rcl.xLeft = usCol;
+                    rcl.yBottom = rcl.yTop = y;
+                    rcl.xRight = x - 1;
+                    convertVio2Win( &rcl );
+                    updateWindow( hwnd, &rcl );
+
+                    usCol = 0;
+                }
+                free( pchCharStr );
+                break;
+            }
+
+            case VI_VIOWRTCHARSTRATT :
+            {
+                BYTE    bAttr;
+                USHORT  usCol;
+                USHORT  usRow;
+                USHORT  usLen;
+                PCH     pchCharStr, pch;
+                PUSHORT pBuf;
+                INT     x, y;
+                RECTL   rcl;
+
+                DosRead( m_hpipeVioSub, &bAttr, sizeof( BYTE ), &cbActual );
+                DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usLen, sizeof( USHORT ), &cbActual );
+
+                pchCharStr = malloc( usLen );
+                DosRead( m_hpipeVioSub, pchCharStr, usLen, &cbActual );
+
+                pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( usRow * m_vmi.col ) + usCol;
+                pch = pchCharStr;
+                for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
+                {
+                    for( x = usCol; ( x < m_vmi.col ) && ( usLen > 0 ); x++, usLen-- )
+                    {
+                       *pBuf++ = MAKEUSHORT( *pch++, bAttr );
+                    }
+
+                    rcl.xLeft = usCol;
+                    rcl.yBottom = rcl.yTop = y;
+                    rcl.xRight = x - 1;
+                    convertVio2Win( &rcl );
+                    updateWindow( hwnd, &rcl );
+
+                    usCol = 0;
+                }
+                free( pchCharStr );
+                break;
+            }
+
+            case VI_VIOWRTCELLSTR :
+            {
+                USHORT  usCol;
+                USHORT  usRow;
+                USHORT  usLen;
+                PUSHORT pusCellStr, pusCell;
+                PUSHORT pBuf;
+                INT     x, y;
+                RECTL   rcl;
+
+                DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usLen, sizeof( USHORT ), &cbActual );
+
+                pusCellStr = malloc( usLen * sizeof( BYTE ) * VIO_CELLSIZE );
+                DosRead( m_hpipeVioSub, pusCellStr, usLen * sizeof( BYTE ) * VIO_CELLSIZE , &cbActual );
+
+                pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( usRow * m_vmi.col ) + usCol;
+                pusCell = pusCellStr;
+                for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
+                {
+                    for( x = usCol; ( x < m_vmi.col ) && ( usLen > 0 ); x++, usLen-- )
+                    {
+                       *pBuf++ = *pusCell++;
+                    }
+
+                    rcl.xLeft = usCol;
+                    rcl.yBottom = rcl.yTop = y;
+                    rcl.xRight = x - 1;
+                    convertVio2Win( &rcl );
+                    updateWindow( hwnd, &rcl );
+
+                    usCol = 0;
+                }
+                free( pusCellStr );
+                break;
+            }
+
+            case VI_VIOSCROLLUP :
+            {
+                USHORT  usCell;
+                USHORT  usLines;
+                USHORT  usRightCol;
+                USHORT  usBottomRow;
+                USHORT  usLeftCol;
+                USHORT  usTopRow;
+
+                RECTL   rcl;
+
+                PUSHORT pBuf;
+                INT     x, y;
+
+                DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * 2, &cbActual );
+                DosRead( m_hpipeVioSub, &usLines, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usRightCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usBottomRow, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usLeftCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usTopRow, sizeof( USHORT ), &cbActual );
+
+                if( usLeftCol >= m_vmi.col )
+                    usLeftCol = m_vmi.col - 1;
+
+                if( usRightCol >= m_vmi.col )
+                    usRightCol = m_vmi.col - 1;
+
+                if( usBottomRow >= m_vmi.row )
+                    usBottomRow = m_vmi.row - 1;
+
+                if( usTopRow >= m_vmi.row )
+                    usTopRow = m_vmi.row - 1;
+
+                rcl.xLeft = usLeftCol;
+                rcl.yBottom = usBottomRow;
+                rcl.xRight = usRightCol;
+                rcl.yTop = usTopRow;
+                convertVio2Win( &rcl );
+
+                if( usLines >= ( usBottomRow - usTopRow + 1 ))
+                    usLines = usBottomRow - usTopRow + 1;
+                else
+                {
+                    HPS     hps;
+                    POINTL  aptl[ 3 ];
+
+                    // source
+                    aptl[ 2 ].x = rcl.xLeft;
+                    aptl[ 2 ].y = rcl.yBottom;
+
+                    // target
+                    aptl[ 0 ].x = rcl.xLeft;
+                    aptl[ 0 ].y = rcl.yBottom + usLines * m_lCharHeight;
+                    aptl[ 1 ].x = rcl.xRight;
+                    aptl[ 1 ].y = rcl.yTop;
+
+                    setCursor( hwnd, FALSE );
+
+                    hps = WinGetPS( hwnd );
+                    GpiBitBlt( hps, hps, 3, aptl, ROP_SRCCOPY, BBO_IGNORE );
+                    WinReleasePS( hps );
+
+                    setCursor( hwnd, TRUE );
+
+                    for( y = usTopRow; y <= usBottomRow - usLines; y++ )
+                    {
+                        pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
+                        memcpy( pBuf, pBuf + ( usLines * m_vmi.col ), ( usRightCol - usLeftCol + 1 ) * VIO_CELLSIZE );
+                    }
+                }
+
+                for( y = usBottomRow - usLines + 1; y <= usBottomRow; y++ )
+                {
+                    pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
+                    for( x = usLeftCol; x <= usRightCol; x++ )
+                        *pBuf++ = usCell;
+                }
+
+                rcl.yTop = rcl.yBottom + usLines * m_lCharHeight;
+                updateWindow( hwnd, &rcl );
+                break;
+            }
+
+            case VI_VIOSCROLLDN :
+            {
+                USHORT  usCell;
+                USHORT  usLines;
+                USHORT  usRightCol;
+                USHORT  usBottomRow;
+                USHORT  usLeftCol;
+                USHORT  usTopRow;
+
+                RECTL   rcl;
+
+                PUSHORT pBuf;
+                INT     x, y;
+
+                DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * 2, &cbActual );
+                DosRead( m_hpipeVioSub, &usLines, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usRightCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usBottomRow, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usLeftCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usTopRow, sizeof( USHORT ), &cbActual );
+
+                if( usLeftCol >= m_vmi.col )
+                    usLeftCol = m_vmi.col - 1;
+
+                if( usRightCol >= m_vmi.col )
+                    usRightCol = m_vmi.col - 1;
+
+                if( usBottomRow >= m_vmi.row )
+                    usBottomRow = m_vmi.row - 1;
+
+                if( usTopRow >= m_vmi.row )
+                    usTopRow = m_vmi.row - 1;
+
+                rcl.xLeft = usLeftCol;
+                rcl.yBottom = usBottomRow;
+                rcl.xRight = usRightCol;
+                rcl.yTop = usTopRow;
+                convertVio2Win( &rcl );
+
+                if( usLines >= ( usBottomRow - usTopRow + 1 ))
+                    usLines = usBottomRow - usTopRow + 1;
+                else
+                {
+                    HPS     hps;
+                    POINTL  aptl[ 3 ];
+
+                    // source
+                    aptl[ 2 ].x = rcl.xLeft;
+                    aptl[ 2 ].y = rcl.yBottom + usLines * m_lCharHeight;
+
+                    // target
+                    aptl[ 0 ].x = rcl.xLeft;
+                    aptl[ 0 ].y = rcl.yBottom;
+                    aptl[ 1 ].x = rcl.xRight;
+                    aptl[ 1 ].y = rcl.yTop - usLines * m_lCharHeight;
+
+                    setCursor( hwnd, FALSE );
+
+                    hps = WinGetPS( hwnd );
+                    GpiBitBlt( hps, hps, 3, aptl, ROP_SRCCOPY, BBO_IGNORE );
+                    WinReleasePS( hps );
+
+                    setCursor( hwnd, TRUE );
+
+                    for( y = usBottomRow; y >= usTopRow + usLines; y-- )
+                    {
+                        pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
+                        memcpy( pBuf, pBuf - ( usLines * m_vmi.col ), ( usRightCol - usLeftCol + 1 ) * VIO_CELLSIZE );
+                    }
+                }
+
+                for( y = usTopRow; y < usTopRow + usLines; y++ )
+                {
+                    pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
+                    for( x = usLeftCol; x <= usRightCol; x++ )
+                        *pBuf++ = usCell;
+                }
+
+                rcl.yBottom = rcl.yTop - usLines * m_lCharHeight;
+                updateWindow( hwnd, &rcl );
+                break;
+            }
+
+            case VI_VIOSCROLLLF :
+            {
+                USHORT  usCell;
+                USHORT  usLines;
+                USHORT  usRightCol;
+                USHORT  usBottomRow;
+                USHORT  usLeftCol;
+                USHORT  usTopRow;
+
+                RECTL   rcl;
+
+                PUSHORT pBuf;
+                INT     x, y;
+
+                DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * 2, &cbActual );
+                DosRead( m_hpipeVioSub, &usLines, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usRightCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usBottomRow, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usLeftCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usTopRow, sizeof( USHORT ), &cbActual );
+
+                if( usLeftCol >= m_vmi.col )
+                    usLeftCol = m_vmi.col - 1;
+
+                if( usRightCol >= m_vmi.col )
+                    usRightCol = m_vmi.col - 1;
+
+                if( usBottomRow >= m_vmi.row )
+                    usBottomRow = m_vmi.row - 1;
+
+                if( usTopRow >= m_vmi.row )
+                    usTopRow = m_vmi.row - 1;
+
+                rcl.xLeft = usLeftCol;
+                rcl.yBottom = usBottomRow;
+                rcl.xRight = usRightCol;
+                rcl.yTop = usTopRow;
+                convertVio2Win( &rcl );
+
+                if( usLines >= ( usBottomRow - usTopRow + 1 ))
+                    usLines = usBottomRow - usTopRow + 1;
+                else
+                {
+                    HPS     hps;
+                    POINTL  aptl[ 3 ];
+
+                    // source
+                    aptl[ 2 ].x = rcl.xLeft + usLines * m_lCharWidth;
+                    aptl[ 2 ].y = rcl.yBottom;
+
+                    // target
+                    aptl[ 0 ].x = rcl.xLeft;
+                    aptl[ 0 ].y = rcl.yBottom;
+                    aptl[ 1 ].x = rcl.xRight - usLines * m_lCharWidth;
+                    aptl[ 1 ].y = rcl.yTop;
+
+                    setCursor( hwnd, FALSE );
+
+                    hps = WinGetPS( hwnd );
+                    GpiBitBlt( hps, hps, 3, aptl, ROP_SRCCOPY, BBO_IGNORE );
+                    WinReleasePS( hps );
+
+                    setCursor( hwnd, TRUE );
+
+                    for( y = usTopRow; y <= usBottomRow; y++ )
+                    {
+                        pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
+                        memmove( pBuf, pBuf + usLines, ( usRightCol - usLeftCol + 1 - usLines ) * VIO_CELLSIZE );
+                    }
+                }
+
+                for( y = usTopRow; y <= usBottomRow; y++ )
+                {
+                    pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usRightCol - usLines + 1;
+                    for( x = usRightCol - usLines + 1; x <= usRightCol; x++ )
+                        *pBuf++ = usCell;
+                }
+
+                rcl.xLeft = rcl.xRight - usLines * m_lCharWidth;
+                updateWindow( hwnd, &rcl );
+                break;
+            }
+
+            case VI_VIOSCROLLRT :
+            {
+                USHORT  usCell;
+                USHORT  usLines;
+                USHORT  usRightCol;
+                USHORT  usBottomRow;
+                USHORT  usLeftCol;
+                USHORT  usTopRow;
+
+                RECTL   rcl;
+
+                PUSHORT pBuf;
+                INT     x, y;
+
+                DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * 2, &cbActual );
+                DosRead( m_hpipeVioSub, &usLines, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usRightCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usBottomRow, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usLeftCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usTopRow, sizeof( USHORT ), &cbActual );
+
+                if( usLeftCol >= m_vmi.col )
+                    usLeftCol = m_vmi.col - 1;
+
+                if( usRightCol >= m_vmi.col )
+                    usRightCol = m_vmi.col - 1;
+
+                if( usBottomRow >= m_vmi.row )
+                    usBottomRow = m_vmi.row - 1;
+
+                if( usTopRow >= m_vmi.row )
+                    usTopRow = m_vmi.row - 1;
+
+                rcl.xLeft = usLeftCol;
+                rcl.yBottom = usBottomRow;
+                rcl.xRight = usRightCol;
+                rcl.yTop = usTopRow;
+                convertVio2Win( &rcl );
+
+                if( usLines >= ( usBottomRow - usTopRow + 1 ))
+                    usLines = usBottomRow - usTopRow + 1;
+                else
+                {
+                    HPS     hps;
+                    POINTL  aptl[ 3 ];
+
+                    // source
+                    aptl[ 2 ].x = rcl.xLeft;
+                    aptl[ 2 ].y = rcl.yBottom;
+
+                    // target
+                    aptl[ 0 ].x = rcl.xLeft + usLines * m_lCharWidth;
+                    aptl[ 0 ].y = rcl.yBottom;
+                    aptl[ 1 ].x = rcl.xRight;
+                    aptl[ 1 ].y = rcl.yTop;
+
+                    setCursor( hwnd, FALSE );
+
+                    hps = WinGetPS( hwnd );
+                    GpiBitBlt( hps, hps, 3, aptl, ROP_SRCCOPY, BBO_IGNORE );
+                    WinReleasePS( hps );
+
+                    setCursor( hwnd, TRUE );
+
+                    for( y = usTopRow; y <= usBottomRow; y++ )
+                    {
+                        pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
+                        memmove( pBuf + usLines, pBuf, ( usRightCol - usLeftCol + 1 - usLines ) * VIO_CELLSIZE );
+                    }
+                }
+
+                for( y = usTopRow; y <= usBottomRow; y++ )
+                {
+                    pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
+                    for( x = usLeftCol; x < usLeftCol + usLines; x++ )
+                        *pBuf++ = usCell;
+                }
+
+                rcl.xRight = rcl.xLeft + usLines * m_lCharWidth;
+                updateWindow( hwnd, &rcl );
+                break;
+            }
+            //case VI_VIOPOPUP :
+            //case VI_VIOENDPOPUP :
+
+        }
+
+        DosDisConnectNPipe( m_hpipeVioSub );
+    } while( usIndex != ( USHORT )-1 );
+
+    callVioDmn( MSG_QUIT );
+    WinPostMsg( hwnd, WM_QUIT, 0, 0 );
+}
+
+VOID initPipeThreadForVioSub( HWND hwnd )
+{
+    CHAR szName[ PIPE_KSHELL_VIOSUB_LEN ];
+    CHAR szSem[ SEM_VIODMN_KSHELL_LEN ];
+    HEV  hev = 0;
+
+    ULONG rc;
+
+    strcpy( szName, PIPE_KSHELL_VIOSUB_BASE );
+    _ultoa( m_ulSGID, szName + strlen( szName ), 16 );
+
+    rc = DosCreateNPipe( szName,
+                    &m_hpipeVioSub,
+                    NP_ACCESS_DUPLEX,
+                    NP_WAIT | NP_TYPE_MESSAGE | NP_READMODE_MESSAGE | 0x01,
+                    32768,
+                    32768,
+                    0 );
+
+    m_tidPipeThread = _beginthread( pipeThread, NULL, 32768, ( void * )hwnd );
+
+    strcpy( szSem, SEM_VIODMN_KSHELL_BASE );
+    strcat( szSem, m_szPid );
+
+    DosOpenEventSem( szSem, &hev );
+    DosPostEventSem( hev );
+    DosCloseEventSem( hev );
+}
+
+VOID donePipeThreadForVioSub( VOID )
+{
+    while( DosWaitThread( &m_tidPipeThread, DCWW_WAIT ) == ERROR_INTERRUPT );
+
+    DosClose( m_hpipeVioSub );
+}

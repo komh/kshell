@@ -1,10 +1,16 @@
-.SUFFIXES : .h .c .o .obj .exe .res .dlg
+.SUFFIXES : .h .c .o .obj .exe .res .dlg .dll .map
 
 CC = gcc
-CFLAGS = -Wall -Zomf
+CFLAGS = -Wall -Zomf -O3
 MTFLAGS = -Zmt
+LFLAGS = -Zomf -Zmap -Zlinker /map
 DLLFLAGS = -Zdll -Zsys -Zso
+
+!ifdef RELEASE
+MAKEPARAM = RELEASE=1
+!else
 DBGFLAGS = -g
+!endif
 
 RC = rc
 
@@ -12,35 +18,50 @@ ZIP = zip
 
 DEL = del
 
-all : viodmn.exe kshell.exe cpdlg.res test.exe
+.c.obj :
+    $(CC) $(DBGFLAGS) $(CFLAGS) $(MTFLAGS) -o $@ -c $<
+
+.dlg.res :
+    $(RC) -r $< $@
+
+all : viodmn.exe kshell.exe cpdlg.res viosub test.exe
+
+kshell.exe : kshell.obj kshell.def cpdlg.res
+    $(CC) $(DBGFLAGS) $(LFLAGS) $(MTFLAGS) -o $@ $** -lbsd
+
+viodmn.exe : viodmn.obj viodmn.def
+    $(CC) $(DBGFLAGS) $(LFLAGS) $(MTFLAGS) -o $@ $**
+
+test.exe : test.obj test.def
+    $(CC) $(DBGFLAGS) $(LFLAGS) -o $@ $**
 
 cpdlg.res : cpdlg.h cpdlg.dlg
-    $(RC) -r cpdlg.dlg cpdlg.res
 
-kshell.exe : kshell.c kshell.h viodmn.h kshell.def cpdlg.res
-    $(CC) $(DBGFLAGS) $(CFLAGS) -o kshell.exe kshell.c kshell.def cpdlg.res -lbsd
+viosub :
+    $(MAKE) /f viosub.mak $(MAKEPARAM)
 
-viodmn.exe : viodmn.c kshell.h viodmn.h viodmn.def
-    $(CC) $(DBGFLAGS) $(CFLAGS) $(MTFLAGS) -o viodmn.exe viodmn.c viodmn.def
+kshell.obj : kshell.c kshell.h cpdlg.h viodmn.h viosub.h
 
-test.exe : test.c test.def
-    $(CC) $(DBGFLAGS) $(CFLAGS) -o test.exe test.c test.def
+viodmn.obj : viodmn.c kshell.h cpdlg.h viodmn.h
+
+test.obj : test.c
 
 dist : bin src
     $(ZIP) kshell$(VER) kshellsrc.zip
     -$(DEL) kshellsrc.zip
 
-bin :
+bin : kshell.exe viodmn.exe viosub.dll test.exe readme.txt readme.eng
     -$(DEL) kshell$(VER)
-    $(ZIP) kshell$(VER) kshell.exe viodmn.exe test.exe readme.txt readme.eng
+    $(ZIP) kshell$(VER) $**
 
-src :
+src : kshell.c kshell.h kshell.def viodmn.c viodmn.h viodmn.def viosub.c viosub.h \
+      dosqss.h vioroute.asm viosub.def viosub.mak test.c test.def cpdlg.dlg cpdlg.h \
+      makefile
     -$(DEL) kshellsrc
-    $(ZIP) kshellsrc kshell.c kshell.h kshell.def test.c test.def viodmn.c viodmn.h \
-           viodmn.def cpdlg.dlg cpdlg.h makefile
+    $(ZIP) kshellsrc $**
 
 clean :
-    -$(DEL) *.o
+    -$(DEL) *.map
     -$(DEL) *.obj
     -$(DEL) *.dll
     -$(DEL) *.exe

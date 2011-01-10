@@ -1,10 +1,5 @@
-#define INCL_DOSSEMAPHORES
-#define INCL_DOSPROCESS
-#define INCL_DOSNMPIPES
-#define INCL_DOSFILEMGR
+#define INCL_DOS
 #define INCL_DOSMONITORS
-#define INCL_DOSSESMGR
-#define INCL_DOSMISC
 #define INCL_DOSERRORS
 #define INCL_VIO
 #define INCL_KBD
@@ -20,6 +15,53 @@
 
 #include "kshell.h"
 #include "viodmn.h"
+
+#define VR_MASK1 (  \
+                    VR_VIOGETCURPOS         |\
+                    VR_VIOGETCURTYPE        |\
+                    VR_VIOGETMODE           |\
+                    VR_VIOGETBUF            |\
+                    VR_VIOGETPHYSBUF        |\
+                    VR_VIOSETCURPOS         |\
+                    VR_VIOSETCURTYPE        |\
+                    VR_VIOSETMODE           |\
+                    VR_VIOSHOWBUF           |\
+                    VR_VIOREADCHARSTR       |\
+                    VR_VIOREADCELLSTR       |\
+                    VR_VIOWRTNCHAR          |\
+                    VR_VIOWRTNATTR          |\
+                    VR_VIOWRTNCELL          |\
+                    VR_VIOWRTTTY            |\
+                    VR_VIOWRTCHARSTR        |\
+                    VR_VIOWRTCHARSTRATT     |\
+                    VR_VIOWRTCELLSTR        |\
+                    VR_VIOSCROLLUP          |\
+                    VR_VIOSCROLLDN          |\
+                    VR_VIOSCROLLLF          |\
+                    VR_VIOSCROLLRT          |\
+                    VR_VIOSETANSI           |\
+                    VR_VIOGETANSI           |\
+                    VR_VIOPRTSC             |\
+                    VR_VIOSCRLOCK           |\
+                    VR_VIOSCRUNLOCK         |\
+                    VR_VIOSAVREDRAWWAIT     |\
+                    VR_VIOSAVREDRAWUNDO     |\
+                    VR_VIOPOPUP             |\
+                    VR_VIOENDPOPUP          |\
+                    VR_VIOPRTSCTOGGLE        \
+                 )
+
+#define VR_MASK2 ( \
+                    VR_VIOMODEWAIT          |\
+                    VR_VIOMODEUNDO          |\
+                    VR_VIOGETFONT           |\
+                    VR_VIOGETCONFIG         |\
+                    VR_VIOSETCP             |\
+                    VR_VIOGETCP             |\
+                    VR_VIOSETFONT           |\
+                    VR_VIOGETSTATE          |\
+                    VR_VIOSETSTATE           \
+                 )
 
 #define MON_WAIT    0x00
 #define MON_NOWAIT  0x01
@@ -88,32 +130,43 @@ typedef struct tagKEYPACKET
    USHORT     ddFlag;
 } KEYPACKET, *PKEYPACKET;
 
-MONIN       m_monIn;
-MONOUT      m_monOut;
+static MONIN  m_monIn;
+static MONOUT m_monOut;
 
 static HPIPE m_hpipe = NULLHANDLE;
-static char  m_szMemName[ KSHELL_MEMNAME_LEN ];
+static char  m_szMemName[ MEM_KSHELL_VIOBUF_LEN ];
+
+static char  m_szPipeName[ PIPE_VIODMN_LEN ];
 
 static PID   m_pid_comspec;
-static HEV   m_hevQuitAck;
-static BOOL  m_fQuit = FALSE;
+static BOOL  volatile m_fQuit = FALSE;
 
+static ULONG m_ulSGID = ( ULONG )-1;
+static CHAR  m_szVioSubPipeName[ PIPE_KSHELL_VIOSUB_LEN ];
+
+static HEV   m_hevKShell;
+
+static HMONITOR  m_hmon;
+static TID       m_tid_pipe;
+static TID       m_tid_kbdmon;
+
+static void init( PSZ pszPid );
+static void done( void );
+static void initSGID( void );
 static void hideFromSwitchList( void );
 static void kbdmonThread( void *arg );
 static void pipeThread( void *arg );
-static void dumpVIO( void );
+static void getCurInfo( void );
 static void getVioInfo( void );
 static void makeKeyEvent( void );
 static void sendAck( void );
+static void getSGID( void );
+static void waitVioSubPipeThread( void );
+static void termVioSubPipeThread( void );
 
 int main( int argc, char *argv[] )
 {
-    HMONITOR    hmon;
-    TID         tid_pipe;
-    TID         tid_kbdmon;
-    CHAR        szPipeName[ PIPE_NAME_LEN ];
     PSZ         pszComspec;
-    APIRET      rc;
 
     if(( argc != 3 ) || ( strcmp( argv[ 2 ], VIODMN_MAGIC ) != 0 ))
     {
@@ -122,15 +175,60 @@ int main( int argc, char *argv[] )
         return 1;
     }
 
+    init( argv[ 1 ] );
+
+    waitVioSubPipeThread();
+
+    if( VioRegister( "VIOSUB", "_VioRouter", VR_MASK1, VR_MASK2 ) == 0 )
+    {
+        pszComspec = getenv( "COMSPEC" );
+        if( pszComspec == NULL )
+            pszComspec = "CMD.EXE";
+
+        m_pid_comspec = spawnlp( P_NOWAIT, pszComspec, pszComspec, NULL );
+        waitpid( m_pid_comspec, NULL, 0 );
+
+        VioDeRegister();
+    }
+
+    termVioSubPipeThread();
+
+    done();
+
+    return 0;
+}
+
+void init( PSZ pszPid )
+{
+    CHAR    szSemKShell[ SEM_VIODMN_KSHELL_LEN ];
+    CHAR    szSemVioDmn[ SEM_KSHELL_VIODMN_LEN ];
+    HEV     hevVioDmn = 0;
+
+    initSGID();
+
     hideFromSwitchList();
 
-    strcpy( m_szMemName, KSHELL_VIOBUF_BASE );
-    strcat( m_szMemName, argv[ 1 ] );
+    strcpy( m_szMemName, MEM_KSHELL_VIOBUF_BASE );
+    strcat( m_szMemName, pszPid );
 
-    strcpy( szPipeName, PIPE_VIO_DUMP_BASE );
-    strcat( szPipeName, argv[ 1 ] );
+    strcpy( m_szPipeName, PIPE_VIODMN_BASE );
+    strcat( m_szPipeName, pszPid );
 
-    rc = DosCreateNPipe( szPipeName,
+    strcpy( szSemKShell, SEM_VIODMN_KSHELL_BASE );
+    strcat( szSemKShell, pszPid );
+
+    DosMonOpen( "KBD$", &m_hmon );
+
+    m_monIn.cb = sizeof( MONIN );
+    m_monOut.cb = sizeof( MONOUT );
+
+    DosMonReg( m_hmon, ( PBYTE )&m_monIn, ( PBYTE )&m_monOut, MONITOR_END, -1 );
+
+    m_tid_kbdmon = _beginthread( kbdmonThread, NULL, 32768, NULL );
+
+    DosSetPriority( PRTYS_THREAD, PRTYC_TIMECRITICAL, 0, m_tid_kbdmon );
+
+    DosCreateNPipe( m_szPipeName,
                     &m_hpipe,
                     NP_ACCESS_DUPLEX,
                     NP_WAIT | NP_TYPE_MESSAGE | NP_READMODE_MESSAGE | 0x01,
@@ -138,39 +236,46 @@ int main( int argc, char *argv[] )
                     MSG_PIPE_SIZE,
                     0 );
 
-    rc = DosMonOpen( "KBD$", &hmon );
+    m_tid_pipe = _beginthread( pipeThread, NULL, 32768, NULL );
 
-    m_monIn.cb = sizeof( MONIN );
-    m_monOut.cb = sizeof( MONOUT );
+    DosCreateEventSem( szSemKShell, &m_hevKShell, DC_SEM_SHARED, 0 );
 
-    rc = DosMonReg( hmon, ( PBYTE )&m_monIn, ( PBYTE )&m_monOut, MONITOR_END, -1 );
+    strcpy( szSemVioDmn, SEM_KSHELL_VIODMN_BASE );
+    strcat( szSemVioDmn, pszPid );
 
-    DosCreateEventSem( NULL, &m_hevQuitAck, 0, FALSE );
+    DosOpenEventSem( szSemVioDmn, &hevVioDmn );
+    DosPostEventSem( hevVioDmn );
+    DosCloseEventSem( hevVioDmn );
+}
 
-    tid_kbdmon = _beginthread( kbdmonThread, NULL, 32768, NULL );
+void done( void )
+{
+    while( DosWaitThread( &m_tid_pipe, DCWW_WAIT ) == ERROR_INTERRUPT );
 
-    DosSetPriority( PRTYS_THREAD, PRTYC_TIMECRITICAL, 0, tid_kbdmon );
-
-    tid_pipe = _beginthread( pipeThread, NULL, 32768, NULL );
-
-    pszComspec = getenv( "COMSPEC" );
-    if( pszComspec == NULL )
-        pszComspec = "CMD.EXE";
-
-    m_pid_comspec = spawnlp( P_NOWAIT, pszComspec, pszComspec, NULL );
-    waitpid( m_pid_comspec, NULL, 0 );
-
-    m_fQuit = TRUE;
-
-    while( DosWaitEventSem( m_hevQuitAck, SEM_INDEFINITE_WAIT ) == ERROR_INTERRUPT );
-
-    DosCloseEventSem( m_hevQuitAck );
-
-    DosMonClose( hmon );
+    DosMonClose( m_hmon );
+    while( DosWaitThread( &m_tid_kbdmon, DCWW_WAIT ) == ERROR_INTERRUPT );
 
     DosClose( m_hpipe );
 
-    return 0;
+    DosCloseEventSem( m_hevKShell );
+}
+
+void initSGID( void )
+{
+    static ULONG APIENTRY ( * pfn_getSGID )( VOID );
+
+    CHAR    szFailName[ 256 ];
+    HMODULE hmod;
+
+    DosLoadModule( szFailName, sizeof( szFailName ), "VIOSUB.DLL", &hmod );
+    DosQueryProcAddr( hmod, 0, "getSGID", ( PFN * )&pfn_getSGID );
+
+    m_ulSGID = pfn_getSGID();
+
+    strcpy( m_szVioSubPipeName, PIPE_KSHELL_VIOSUB_BASE );
+    _ultoa( m_ulSGID, m_szVioSubPipeName + strlen( m_szVioSubPipeName ), 16 );
+
+    DosFreeModule( hmod );
 }
 
 void hideFromSwitchList( void )
@@ -215,8 +320,8 @@ void pipeThread( void *arg )
 
         switch( usMsg )
         {
-            case MSG_DUMP :
-                dumpVIO();
+            case MSG_CURINFO :
+                getCurInfo();
                 sendAck();
                 break;
 
@@ -230,6 +335,11 @@ void pipeThread( void *arg )
                 sendAck();
                 break;
 
+            case MSG_SGID :
+                getSGID();
+                sendAck();
+                break;
+
             case MSG_QUIT :
                 DosKillProcess( DKP_PROCESSTREE, m_pid_comspec );
                 m_fQuit = TRUE;
@@ -238,16 +348,11 @@ void pipeThread( void *arg )
         }
 
         DosDisConnectNPipe( m_hpipe );
-
-        DosQueryEventSem( m_hevQuitAck, &cbActual );
-    } while( cbActual == 0 );
+    } while( !m_fQuit );
 }
 
-void dumpVIO( void )
+void getCurInfo( void )
 {
-    ULONG   pBuf16;
-    PVOID   pBuf;
-    USHORT  usLen;
     USHORT  usRow;
     USHORT  usCol;
     VIOCURSORINFO   ci;
@@ -267,11 +372,6 @@ void dumpVIO( void )
     memcpy( pKBuf, &ci, sizeof( ci ));
     pKBuf += sizeof( ci );
 
-    VioGetBuf( &pBuf16, &usLen, 0 );
-    pBuf = _emx_16to32( pBuf16 );
-
-    memcpy( pKBuf, pBuf, usLen );
-
     DosFreeMem( pKBuf );
 }
 
@@ -287,6 +387,16 @@ void getVioInfo( void )
     DosFreeMem( pKBuf );
 }
 
+void getSGID( void )
+{
+    PULONG  pKBuf;
+
+    DosGetNamedSharedMem(( PVOID )&pKBuf, m_szMemName, PAG_READ | PAG_WRITE );
+
+    *pKBuf = m_ulSGID;
+
+    DosFreeMem( pKBuf );
+}
 
 static BYTE m_abPMScanToVio[256][ 4 ] =
 /*********************************************************************************************/
@@ -745,9 +855,35 @@ void sendAck( void )
 
     DosWrite( m_hpipe, &usAck, sizeof( usAck ), &cbActual );
     DosResetBuffer( m_hpipe );
+}
 
-    if( m_fQuit )
-        DosPostEventSem( m_hevQuitAck );
+void waitVioSubPipeThread( void )
+{
+    while( DosWaitEventSem( m_hevKShell, SEM_INDEFINITE_WAIT ) == ERROR_INTERRUPT );
+}
+
+void termVioSubPipeThread( void )
+{
+    HFILE   hpipe;
+    ULONG   ulAction;
+    USHORT  usIndex = ( USHORT )-1;
+    ULONG   cbActual;
+    ULONG rc;
+
+    do
+    {
+        rc = DosOpen( m_szVioSubPipeName, &hpipe, &ulAction, 0, 0,
+                      OPEN_ACTION_OPEN_IF_EXISTS,
+                      OPEN_ACCESS_READWRITE | OPEN_SHARE_DENYREADWRITE |
+                      OPEN_FLAGS_FAIL_ON_ERROR,
+                      NULL );
+        if( rc == ERROR_PIPE_BUSY )
+            while( DosWaitNPipe( m_szVioSubPipeName, -1 ) == ERROR_INTERRUPT );
+    } while( rc != 0 );
+
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+
+    DosClose( hpipe );
 }
 
 
