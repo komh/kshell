@@ -2,6 +2,7 @@
 #include <os2.h>
 
 #include <stdio.h>
+#include <string.h>
 
 #define SH_LCTRL_DOWN       0x0100
 #define SH_LALT_DOWN        0x0200
