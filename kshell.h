@@ -13,7 +13,6 @@
 #define IDM_CODEPAGE    0x01
 #define IDM_FONT        0x02
 
-#define VIO_CISIZE      ( sizeof( USHORT ) * 2 + sizeof( VIOCURSORINFO ))
 #define VIO_CELLSIZE    2
 #define VIO_SCRSIZE     ( m_vmi.col * m_vmi.row * VIO_CELLSIZE )
 

@@ -34,6 +34,8 @@
 
 static VIOMODEINFO  m_vmi;
 
+#define VIO_CISIZE      ( sizeof( USHORT ) * 2 + sizeof( VIOCURSORINFO ))
+
 static FATTRS   m_fat;
 static FIXED    m_fxPointSize;
 static ULONG    m_ulHoriFontRes;
