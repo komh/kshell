@@ -12,16 +12,11 @@ on VIO of non-DBCS OS/2 environment.
   
   - OS/2 Warp v4 for Korean with FixPak #15
   
-  - EMX 0.9d fix #4 + gcc 2.8.1
-
-  - VACPP v3.0.8
-
-  - ALP( OS/2 ToolKit 4.5 )
-
+  - Open Watcom v1.6
+  
 3. Requirement
 --------------
 
-  - EMX 0.9d fix #4 runtime
   - Appropriate fonts
   - IME for input DBCS, such as KIME
 
@@ -44,6 +39,8 @@ Server for e-Business with FixPak #3.
   - Codepages other than primary or secondary codepage can be specified.
   
   - Scroll-back up to 200 lines is supported.
+  
+  - Clipboard is supported.
 
 6. Installation
 ---------------
@@ -53,43 +50,57 @@ Server for e-Business with FixPak #3.
 7. Usage
 --------
 
-7-1. Menu(System Menu)
-----------------------
+7-1. System Menu
+----------------
 
   Codepage... : Specify codepage.
   Font...     : Specify font and size.
 
+7-2. Popup Menu
+---------------
+  Codepage... : Specify codepage.
+  Font...     : Specify font and size.
+  Copy        : Copy the contents of marking area to clipboard.
+  Copy All    : Copy all the contents of the window to clipboard.
+  Paste       : Copy from clipboard to the window.
+  
 8. Limits/Known bugs
 
-  - Only support keyboard input and VIO output. So mouse and clipboard are 
-    not supported.
+  - Only support keyboard input and VIO output. So mouse is not supported.
 
   - Ctrl-Break, Ctrl-C, Ctrl-S, Ctrl-P, and so on are not supported.
   
   - 'Courier New' font do not displayed correctly.
+  
+  - When 'Marking Mode', if any window cross over the marking area, that area 
+    is not displayed correctly.
 
 9. TODOs...
 -----------
 
-  - Support mouse and clipboard
+  - Support mouse
   
   - Support special key combination such as Ctrl-C.
   
 10. History
 ---------------
-
+  - v0.3.0 ( 2007/01/01 )
+    .Supports clipboard.
+    .Minor bugs. Fixed.
+    .Compiler changed to Open Watcom v1.6
+    
   - v0.2.0 ( 2005/08/16 )
     .Performance is improved greately.
     .Sometimes, a part of background is not erased. Fixed.
     .When scrolling, other window cover KShell window, that part of KShell
-     window is not scrolled correctly. Fixed( using WinScrollWindow() instead of
-     GpiBitBlt()).
+     window is not scrolled correctly. Fixed( using WinScrollWindow() instead 
+     of GpiBitBlt()).
     .HyperView( HV.EXE ) cannot be launched. Fixed( enlarging buffer size for
      DosQuerySysState()).
 
   - v0.1.0 ( 2005/02/28 )
-    .Use VioRegister() instead of polling method. As a result, Output efficiency
-     is improved.
+    .Use VioRegister() instead of polling method. As a result, Output 
+     efficiency is improved.
     .VIO colors are correct.
     .Broken DBCS chars are displayed when inputting consecutive DBCS chars.
      Fixed.
@@ -100,14 +111,13 @@ Server for e-Business with FixPak #3.
     .The unit of font size is changed from pel to pt.
 
   - test version ( 2005/01/19 )
-    initial version.
+    .initial version.
     
 11. Compilation
 ---------------
  
-  You have to EMX 0.9d fix #4 + gcc 2.8.1, VACPP 3.0.8 and ALP to compile
-KShell.
-  Now, enter 'nmake' on command prompt.
+  You have to have Open Watcom v1.6 to compile KShell.
+  Now, enter 'wmake' on command prompt.
   
 12. Modules
 -------------
