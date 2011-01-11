@@ -80,6 +80,9 @@ static VOID donePipeThreadForVioSub( VOID );
 
 static VOID updateWindow( HWND hwnd, PRECTL prcl );
 
+static VOID initScrollBackMode( HWND hwnd );
+static VOID doneScrollBackMode( HWND hwnd );
+
 static MRESULT EXPENTRY windowProc( HWND, ULONG, MPARAM, MPARAM );
 
 INT main( VOID )
@@ -131,7 +134,8 @@ INT main( VOID )
         sizeof( PVOID )
     );
 
-    flFrameFlags = FCF_SYSMENU | FCF_TITLEBAR | FCF_TASKLIST | FCF_DLGBORDER;
+    flFrameFlags = FCF_SYSMENU | FCF_TITLEBAR | FCF_TASKLIST | FCF_DLGBORDER |
+                   FCF_VERTSCROLL;
 
     hwndFrame = WinCreateStdWindow(
                 HWND_DESKTOP,               // parent window handle
@@ -177,13 +181,61 @@ static VOID convertVio2Win( PRECTL prcl )
 #define X_Win2Vio( x ) (( int )(( x ) / m_lCharWidth ))
 #define Y_Win2Vio( y ) (( int )( m_vmi.row - (( y ) / m_lCharHeight ) - 1 ))
 
+#define KSHELL_SCROLLBACK_LINES 200
+
 typedef struct tagKSHELLDATA
 {
     USHORT  x;
     USHORT  y;
     VIOCURSORINFO ci;
     PVOID   pVioBuf;
+    PVOID   pScrollBackBuf;
+    USHORT  usBaseLineOfVioBuf;
+    USHORT  usBaseLineOfScrollBackBuf;
+    USHORT  ulLastLineOfScrollBackBuf;
+    ULONG   ulBufSize;
+    BOOL    fScrollBackMode;
 } KSHELLDATA, *PKSHELLDATA;
+
+#define getPtrOfUpdateBuf( pKShellData ) \
+    ( pKShellData->fScrollBackMode ? \
+      (( PVOID )(( PUSHORT )( pKShellData->pScrollBackBuf ) + \
+                            ( pKShellData->usBaseLineOfScrollBackBuf * m_vmi.col ))) : \
+      (( PVOID )(( PUSHORT )( pKShellData->pVioBuf ) + \
+                            ( pKShellData->usBaseLineOfVioBuf * m_vmi.col ))))
+
+#define getPtrOfVioBuf( pKShellData ) \
+    (( PVOID )(( PUSHORT )( pKShellData->pVioBuf ) + \
+                          ( pKShellData->usBaseLineOfVioBuf * m_vmi.col )))
+
+static VOID moveBaseLineOfVioBuf( HWND hwnd, SHORT sLines )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+    HWND        hwndVertScroll = WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_VERTSCROLL );
+
+    pKShellData->usBaseLineOfVioBuf += sLines;
+
+    if( !pKShellData->fScrollBackMode )
+    {
+        // use WinPostMsg() instead of WinSendMsg() because the latter cause system to hang on.
+        WinPostMsg( hwndVertScroll, SBM_SETSCROLLBAR, MPFROMSHORT( pKShellData->usBaseLineOfVioBuf ), MPFROM2SHORT( 0, pKShellData->usBaseLineOfVioBuf ));
+        WinPostMsg( hwndVertScroll, SBM_SETTHUMBSIZE, MPFROM2SHORT( m_vmi.row, pKShellData->usBaseLineOfVioBuf + m_vmi.row ), 0 );
+    }
+}
+
+static VOID moveBaseLineOfVioBufTo( HWND hwnd, SHORT sTo )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+    HWND        hwndVertScroll = WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_VERTSCROLL );
+
+    pKShellData->usBaseLineOfVioBuf = sTo;
+    if( !pKShellData->fScrollBackMode )
+    {
+        // use WinPostMsg() instead of WinSendMsg() because the latter cause system to hang on.
+        WinPostMsg( hwndVertScroll, SBM_SETSCROLLBAR, MPFROMSHORT( pKShellData->usBaseLineOfVioBuf ), MPFROM2SHORT( 0, pKShellData->usBaseLineOfVioBuf ));
+        WinPostMsg( hwndVertScroll, SBM_SETTHUMBSIZE, MPFROM2SHORT( m_vmi.row, pKShellData->usBaseLineOfVioBuf + m_vmi.row ), 0 );
+    }
+}
 
 static VOID setCursor( HWND hwnd, BOOL fCreate )
 {
@@ -193,6 +245,7 @@ static VOID setCursor( HWND hwnd, BOOL fCreate )
     WinDestroyCursor( hwnd );
 
     if(( pKShellData->ci.attr != ( USHORT )-1 ) &&
+       !pKShellData->fScrollBackMode &&
        ( WinQueryFocus( HWND_DESKTOP ) == hwnd ) &&
        fCreate )
     {
@@ -286,8 +339,7 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
         ptl.y = ( m_vmi.row - yStart - 1 ) * m_lCharHeight + m_lMaxDescender;
         for( y = yStart; y <= yEnd; y++ )
         {
-            pVioBufShell = (( PUSHORT )pKShellData->pVioBuf )
-                            + ( y * m_vmi.col );
+            pVioBufShell = ( PUSHORT )getPtrOfUpdateBuf( pKShellData ) + y * m_vmi.col;
             if( isDBCSEnv())
             {
 
@@ -432,6 +484,41 @@ static VOID scrollWindow( HWND hwnd, LONG lDx, LONG lDy, PRECTL prcl )
 #endif
 }
 
+VOID initScrollBackMode( HWND hwnd )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+    CHAR        szTitle[ 50 ];
+
+    strcpy( szTitle, BASE_TITLE );
+    strcat( szTitle, " : Scroll Back Mode" );
+    WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), szTitle );
+
+    memcpy( pKShellData->pScrollBackBuf, pKShellData->pVioBuf, pKShellData->ulBufSize );
+    pKShellData->usBaseLineOfScrollBackBuf = pKShellData->usBaseLineOfVioBuf;
+    pKShellData->ulLastLineOfScrollBackBuf = pKShellData->usBaseLineOfVioBuf;
+    setCursor( hwnd, FALSE );
+
+    pKShellData->fScrollBackMode = TRUE;
+}
+
+VOID doneScrollBackMode( HWND hwnd )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), BASE_TITLE );
+
+    pKShellData->fScrollBackMode = FALSE;
+
+    WinSendMsg( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_VERTSCROLL ),
+                SBM_SETPOS,
+                MPFROMSHORT( pKShellData->usBaseLineOfVioBuf ),
+                0 );
+
+    setCursor( hwnd, TRUE );
+
+    updateWindow( hwnd, NULL );
+}
+
 MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
@@ -445,8 +532,13 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 
             WinSetWindowPtr( hwnd, 0, pKShellData );
 
-            pKShellData->pVioBuf = malloc( VIO_SCRSIZE );
-            memset( pKShellData->pVioBuf, 0, sizeof( VIO_SCRSIZE ));
+            pKShellData->ulBufSize = ( KSHELL_SCROLLBACK_LINES + m_vmi.row ) * m_vmi.col * VIO_CELLSIZE;
+
+            pKShellData->pVioBuf = malloc( pKShellData->ulBufSize );
+            memset( pKShellData->pVioBuf, 0, pKShellData->ulBufSize );
+
+            pKShellData->pScrollBackBuf = malloc( pKShellData->ulBufSize );
+            memset( pKShellData->pScrollBackBuf, 0, pKShellData->ulBufSize );
 
             if( callVioDmn( MSG_CURINFO ))
             {
@@ -461,6 +553,7 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 
         case WM_DESTROY :
         {
+            free( pKShellData->pScrollBackBuf );
             free( pKShellData->pVioBuf );
             free( pKShellData );
 
@@ -520,6 +613,9 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             PMPARAM pmp;
             BYTE    abKbdState[ 256 ];
             BYTE    abPhysKbdState[ 256 ];
+
+            if( pKShellData->fScrollBackMode )
+                doneScrollBackMode( hwnd );
 
             WinSetKeyboardStateTable( HWND_DESKTOP, abKbdState, FALSE );
 
@@ -662,6 +758,116 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                     return 0;
                 }
             }
+
+        case WM_VSCROLL :
+        {
+            SHORT   sSlider = SHORT1FROMMP( mp2 );
+            USHORT  uscmd = SHORT2FROMMP( mp2 );
+
+            switch( uscmd )
+            {
+                case SB_LINEUP :
+                    if( pKShellData->usBaseLineOfVioBuf > 0 )
+                    {
+                        if( !pKShellData->fScrollBackMode )
+                            initScrollBackMode( hwnd );
+
+                        if( pKShellData->usBaseLineOfScrollBackBuf > 0 )
+                        {
+                            pKShellData->usBaseLineOfScrollBackBuf--;
+                            WinSendMsg( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_VERTSCROLL ),
+                                        SBM_SETPOS,
+                                        MPFROMSHORT( pKShellData->usBaseLineOfScrollBackBuf ),
+                                        0);
+
+                            scrollWindow( hwnd, 0, -m_lCharHeight, NULL );
+                        }
+                    }
+                    break;
+
+                case SB_LINEDOWN :
+                    if( pKShellData->fScrollBackMode )
+                    {
+                        if( pKShellData->usBaseLineOfScrollBackBuf + 1 == pKShellData->ulLastLineOfScrollBackBuf )
+                            doneScrollBackMode( hwnd );
+                        else
+                        {
+                            pKShellData->usBaseLineOfScrollBackBuf++;
+                            WinSendMsg( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_VERTSCROLL ),
+                                        SBM_SETPOS,
+                                        MPFROMSHORT( pKShellData->usBaseLineOfScrollBackBuf ),
+                                        0);
+
+                            scrollWindow( hwnd, 0, m_lCharHeight, NULL );
+                        }
+                    }
+                    break;
+
+                case SB_PAGEUP :
+                    if( pKShellData->usBaseLineOfVioBuf > 0 )
+                    {
+                        if( !pKShellData->fScrollBackMode )
+                            initScrollBackMode( hwnd );
+
+                        if( pKShellData->usBaseLineOfScrollBackBuf > 0 )
+                        {
+                            if( pKShellData->usBaseLineOfScrollBackBuf < m_vmi.row )
+                                pKShellData->usBaseLineOfScrollBackBuf = 0;
+                            else
+                                pKShellData->usBaseLineOfScrollBackBuf -= m_vmi.row;
+
+                            WinSendMsg( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_VERTSCROLL ),
+                                        SBM_SETPOS,
+                                        MPFROMSHORT( pKShellData->usBaseLineOfScrollBackBuf ),
+                                        0);
+
+                            updateWindow( hwnd, NULL );
+                        }
+                    }
+                    break;
+
+                case SB_PAGEDOWN :
+                    if( pKShellData->fScrollBackMode )
+                    {
+                        if( pKShellData->usBaseLineOfScrollBackBuf + m_vmi.row >= pKShellData->ulLastLineOfScrollBackBuf )
+                            doneScrollBackMode( hwnd );
+                        else
+                        {
+                            pKShellData->usBaseLineOfScrollBackBuf  += m_vmi.row;
+                            WinSendMsg( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_VERTSCROLL ),
+                                        SBM_SETPOS,
+                                        MPFROMSHORT( pKShellData->usBaseLineOfScrollBackBuf ),
+                                        0);
+                            updateWindow( hwnd, NULL );
+                        }
+                    }
+                    break;
+
+                //case SB_SLIDERPOSITION :
+                case SB_SLIDERTRACK :
+                {
+                    if( !pKShellData->fScrollBackMode )
+                        initScrollBackMode( hwnd );
+
+                    if( sSlider == pKShellData->ulLastLineOfScrollBackBuf )
+                        doneScrollBackMode( hwnd );
+                    else
+                    {
+                        SHORT   sDelta = sSlider - pKShellData->usBaseLineOfScrollBackBuf;
+
+                        if( sDelta != 0 )
+                        {
+                            pKShellData->usBaseLineOfScrollBackBuf += sDelta;
+
+                            scrollWindow( hwnd, 0, sDelta * m_lCharHeight, NULL );
+                        }
+                    }
+                    break;
+                }
+            }
+
+            return 0;
+        }
     }
 
     return WinDefWindowProc( hwnd, msg, mp1, mp2 );
@@ -817,6 +1023,8 @@ VOID initFrame( HWND hwndFrame )
         mi.hwndSubMenu = NULLHANDLE;
         mi.hItem = 0;
         WinSendMsg( hwndSysMenu, MM_INSERTITEM, ( MPARAM )&mi, 0 );
+
+        WinEnableWindow( WinWindowFromID( hwndFrame, FID_VERTSCROLL ), FALSE );
     }
 
     hwndClient = WinWindowFromID( hwndFrame, FID_CLIENT );
@@ -926,6 +1134,9 @@ VOID waitVioDmn( VOID )
     while( DosWaitEventSem( m_hevVioDmn, SEM_INDEFINITE_WAIT ) == ERROR_INTERRUPT );
 }
 
+#define isFullRect( tr, lc, br, rc ) ((( tr ) == 0 ) && (( lc ) == 0 ) && \
+                                      (( br ) == m_vmi.row - 1 ) && (( rc ) == m_vmi.col -1 ))
+
 static VOID pipeThread( void *arg )
 {
     HWND        hwnd = ( HWND )arg;
@@ -948,7 +1159,8 @@ static VOID pipeThread( void *arg )
                 DosRead( m_hpipeVioSub, &pKShellData->x, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &pKShellData->y, sizeof( USHORT ), &cbActual );
 
-                setCursor( hwnd, TRUE );
+                if( !pKShellData->fScrollBackMode )
+                    setCursor( hwnd, TRUE );
                 break;
             }
 
@@ -973,7 +1185,8 @@ static VOID pipeThread( void *arg )
 
                 memcpy( &pKShellData->ci, &vci, sizeof( VIOCURSORINFO ));
 
-                setCursor( hwnd, TRUE );
+                if( !pKShellData->fScrollBackMode )
+                    setCursor( hwnd, TRUE );
                 break;
             }
 
@@ -984,7 +1197,7 @@ static VOID pipeThread( void *arg )
                 USHORT  usRow;
                 USHORT  usTimes;
                 CHAR    ch;
-                PUSHORT pBuf;
+                PCH     pBuf;
                 INT     x, y;
                 RECTL   rcl;
 
@@ -993,19 +1206,22 @@ static VOID pipeThread( void *arg )
                 DosRead( m_hpipeVioSub, &usTimes, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &ch, sizeof( CHAR ), &cbActual );
 
-                pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( usRow * m_vmi.col ) + usCol;
+                pBuf = ( PCH )(( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol );
                 for( y = usRow; ( y < m_vmi.row ) && ( usTimes > 0 ); y++ )
                 {
-                    for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes--, pBuf++ )
+                    for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes--, pBuf += VIO_CELLSIZE )
                     {
-                       *pBuf = MAKEUSHORT( ch, HIUCHAR( *pBuf ));
+                       *pBuf = ch;
                     }
 
-                    rcl.xLeft = usCol;
-                    rcl.yBottom = rcl.yTop = y;
-                    rcl.xRight = x - 1;
-                    convertVio2Win( &rcl );
-                    updateWindow( hwnd, &rcl );
+                    if( !pKShellData->fScrollBackMode )
+                    {
+                        rcl.xLeft = usCol;
+                        rcl.yBottom = rcl.yTop = y;
+                        rcl.xRight = x - 1;
+                        convertVio2Win( &rcl );
+                        updateWindow( hwnd, &rcl );
+                    }
 
                     usCol = 0;
                 }
@@ -1018,7 +1234,7 @@ static VOID pipeThread( void *arg )
                 USHORT  usRow;
                 USHORT  usTimes;
                 BYTE    bAttr;
-                PUSHORT pBuf;
+                PBYTE   pBuf;
                 INT     x, y;
                 RECTL   rcl;
 
@@ -1027,19 +1243,22 @@ static VOID pipeThread( void *arg )
                 DosRead( m_hpipeVioSub, &usTimes, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &bAttr, sizeof( BYTE ), &cbActual );
 
-                pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( usRow * m_vmi.col ) + usCol;
+                pBuf = ( PBYTE )(( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol ) + 1;
                 for( y = usRow; ( y < m_vmi.row ) && ( usTimes > 0 ); y++ )
                 {
-                    for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes--, pBuf++ )
+                    for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes--, pBuf += VIO_CELLSIZE )
                     {
-                       *pBuf = MAKEUSHORT( LOUCHAR( *pBuf ), bAttr );
+                       *pBuf = bAttr;
                     }
 
-                    rcl.xLeft = usCol;
-                    rcl.yBottom = rcl.yTop = y;
-                    rcl.xRight = x - 1;
-                    convertVio2Win( &rcl );
-                    updateWindow( hwnd, &rcl );
+                    if( !pKShellData->fScrollBackMode )
+                    {
+                        rcl.xLeft = usCol;
+                        rcl.yBottom = rcl.yTop = y;
+                        rcl.xRight = x - 1;
+                        convertVio2Win( &rcl );
+                        updateWindow( hwnd, &rcl );
+                    }
 
                     usCol = 0;
                 }
@@ -1061,7 +1280,7 @@ static VOID pipeThread( void *arg )
                 DosRead( m_hpipeVioSub, &usTimes, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * VIO_CELLSIZE, &cbActual );
 
-                pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( usRow * m_vmi.col ) + usCol;
+                pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
                 for( y = usRow; ( y < m_vmi.row ) && ( usTimes > 0 ); y++ )
                 {
                     for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes-- )
@@ -1069,11 +1288,14 @@ static VOID pipeThread( void *arg )
                        *pBuf++ = usCell;
                     }
 
-                    rcl.xLeft = usCol;
-                    rcl.yBottom = rcl.yTop = y;
-                    rcl.xRight = x - 1;
-                    convertVio2Win( &rcl );
-                    updateWindow( hwnd, &rcl );
+                    if( !pKShellData->fScrollBackMode )
+                    {
+                        rcl.xLeft = usCol;
+                        rcl.yBottom = rcl.yTop = y;
+                        rcl.xRight = x - 1;
+                        convertVio2Win( &rcl );
+                        updateWindow( hwnd, &rcl );
+                    }
 
                     usCol = 0;
                 }
@@ -1097,7 +1319,7 @@ static VOID pipeThread( void *arg )
                 pchCharStr = malloc( usLen );
                 DosRead( m_hpipeVioSub, pchCharStr, usLen, &cbActual );
 
-                pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( usRow * m_vmi.col ) + usCol;
+                pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
                 pch = pchCharStr;
                 for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
                 {
@@ -1106,11 +1328,14 @@ static VOID pipeThread( void *arg )
                        *pBuf = MAKEUSHORT( *pch++, HIUCHAR( *pBuf ));
                     }
 
-                    rcl.xLeft = usCol;
-                    rcl.yBottom = rcl.yTop = y;
-                    rcl.xRight = x - 1;
-                    convertVio2Win( &rcl );
-                    updateWindow( hwnd, &rcl );
+                    if( !pKShellData->fScrollBackMode )
+                    {
+                        rcl.xLeft = usCol;
+                        rcl.yBottom = rcl.yTop = y;
+                        rcl.xRight = x - 1;
+                        convertVio2Win( &rcl );
+                        updateWindow( hwnd, &rcl );
+                    }
 
                     usCol = 0;
                 }
@@ -1137,7 +1362,7 @@ static VOID pipeThread( void *arg )
                 pchCharStr = malloc( usLen );
                 DosRead( m_hpipeVioSub, pchCharStr, usLen, &cbActual );
 
-                pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( usRow * m_vmi.col ) + usCol;
+                pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
                 pch = pchCharStr;
                 for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
                 {
@@ -1146,11 +1371,14 @@ static VOID pipeThread( void *arg )
                        *pBuf++ = MAKEUSHORT( *pch++, bAttr );
                     }
 
-                    rcl.xLeft = usCol;
-                    rcl.yBottom = rcl.yTop = y;
-                    rcl.xRight = x - 1;
-                    convertVio2Win( &rcl );
-                    updateWindow( hwnd, &rcl );
+                    if( !pKShellData->fScrollBackMode )
+                    {
+                        rcl.xLeft = usCol;
+                        rcl.yBottom = rcl.yTop = y;
+                        rcl.xRight = x - 1;
+                        convertVio2Win( &rcl );
+                        updateWindow( hwnd, &rcl );
+                    }
 
                     usCol = 0;
                 }
@@ -1172,10 +1400,11 @@ static VOID pipeThread( void *arg )
                 DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usLen, sizeof( USHORT ), &cbActual );
 
-                pusCellStr = malloc( usLen * sizeof( BYTE ) * VIO_CELLSIZE );
-                DosRead( m_hpipeVioSub, pusCellStr, usLen * sizeof( BYTE ) * VIO_CELLSIZE , &cbActual );
+                pusCellStr = malloc( usLen );
+                DosRead( m_hpipeVioSub, pusCellStr, usLen, &cbActual );
 
-                pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( usRow * m_vmi.col ) + usCol;
+                usLen /= VIO_CELLSIZE;
+                pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
                 pusCell = pusCellStr;
                 for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
                 {
@@ -1184,11 +1413,14 @@ static VOID pipeThread( void *arg )
                        *pBuf++ = *pusCell++;
                     }
 
-                    rcl.xLeft = usCol;
-                    rcl.yBottom = rcl.yTop = y;
-                    rcl.xRight = x - 1;
-                    convertVio2Win( &rcl );
-                    updateWindow( hwnd, &rcl );
+                    if( !pKShellData->fScrollBackMode )
+                    {
+                        rcl.xLeft = usCol;
+                        rcl.yBottom = rcl.yTop = y;
+                        rcl.xRight = x - 1;
+                        convertVio2Win( &rcl );
+                        updateWindow( hwnd, &rcl );
+                    }
 
                     usCol = 0;
                 }
@@ -1205,8 +1437,6 @@ static VOID pipeThread( void *arg )
                 USHORT  usLeftCol;
                 USHORT  usTopRow;
 
-                RECTL   rcl;
-
                 PUSHORT pBuf;
                 INT     x, y;
 
@@ -1229,54 +1459,54 @@ static VOID pipeThread( void *arg )
                 if( usTopRow >= m_vmi.row )
                     usTopRow = m_vmi.row - 1;
 
-                rcl.xLeft = usLeftCol;
-                rcl.yBottom = usBottomRow;
-                rcl.xRight = usRightCol;
-                rcl.yTop = usTopRow;
-                convertVio2Win( &rcl );
-
                 if( usLines >= ( usBottomRow - usTopRow + 1 ))
                     usLines = usBottomRow - usTopRow + 1;
+
+                if( isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol ))
+                {
+                    if( pKShellData->usBaseLineOfVioBuf + usLines > KSHELL_SCROLLBACK_LINES ) // Scroll buf full ?
+                    {
+                        pBuf = ( PUSHORT )pKShellData->pVioBuf + usLines * m_vmi.col;
+                        memmove( pKShellData->pVioBuf, pBuf, ( KSHELL_SCROLLBACK_LINES + m_vmi.row - usLines ) * m_vmi.col * VIO_CELLSIZE );
+                        moveBaseLineOfVioBufTo( hwnd, KSHELL_SCROLLBACK_LINES );
+                    }
+                    else
+                        moveBaseLineOfVioBuf( hwnd, usLines );
+                }
                 else
                 {
-                    HPS     hps;
-                    POINTL  aptl[ 3 ];
-
-                    // source
-                    aptl[ 2 ].x = rcl.xLeft;
-                    aptl[ 2 ].y = rcl.yBottom;
-
-                    // target
-                    aptl[ 0 ].x = rcl.xLeft;
-                    aptl[ 0 ].y = rcl.yBottom + usLines * m_lCharHeight;
-                    aptl[ 1 ].x = rcl.xRight;
-                    aptl[ 1 ].y = rcl.yTop;
-
-                    setCursor( hwnd, FALSE );
-
-                    hps = WinGetPS( hwnd );
-                    GpiBitBlt( hps, hps, 3, aptl, ROP_SRCCOPY, BBO_IGNORE );
-                    WinReleasePS( hps );
-
-                    setCursor( hwnd, TRUE );
-
                     for( y = usTopRow; y <= usBottomRow - usLines; y++ )
                     {
-                        pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
-                        memcpy( pBuf, pBuf + ( usLines * m_vmi.col ), ( usRightCol - usLeftCol + 1 ) * VIO_CELLSIZE );
+                        pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
+                        memmove( pBuf, pBuf + ( usLines * m_vmi.col ), ( usRightCol - usLeftCol + 1 ) * VIO_CELLSIZE );
                     }
                 }
 
                 for( y = usBottomRow - usLines + 1; y <= usBottomRow; y++ )
                 {
-                    pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
+                    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
                     for( x = usLeftCol; x <= usRightCol; x++ )
                         *pBuf++ = usCell;
                 }
 
-                rcl.yTop = rcl.yBottom + usLines * m_lCharHeight;
-                updateWindow( hwnd, &rcl );
+                if( !pKShellData->fScrollBackMode )
+                {
+                    RECTL   rcl;
+
+                    rcl.xLeft = usLeftCol;
+                    rcl.yBottom = usBottomRow;
+                    rcl.xRight = usRightCol;
+                    rcl.yTop = usTopRow;
+                    convertVio2Win( &rcl );
+
+                    setCursor( hwnd, FALSE );
+
+                    scrollWindow( hwnd, 0, usLines * m_lCharHeight, &rcl );
+
+                    setCursor( hwnd, TRUE );
+                }
                 break;
+
             }
 
             case VI_VIOSCROLLDN :
@@ -1288,9 +1518,9 @@ static VOID pipeThread( void *arg )
                 USHORT  usLeftCol;
                 USHORT  usTopRow;
 
-                RECTL   rcl;
-
                 PUSHORT pBuf;
+                BOOL    fFullRect;
+                BOOL    fClearScreen = FALSE;
                 INT     x, y;
 
                 DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * 2, &cbActual );
@@ -1312,72 +1542,77 @@ static VOID pipeThread( void *arg )
                 if( usTopRow >= m_vmi.row )
                     usTopRow = m_vmi.row - 1;
 
-                rcl.xLeft = usLeftCol;
-                rcl.yBottom = usBottomRow;
-                rcl.xRight = usRightCol;
-                rcl.yTop = usTopRow;
-                convertVio2Win( &rcl );
+                fFullRect = isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol );
 
                 if( usLines >= ( usBottomRow - usTopRow + 1 ))
-                    usLines = usBottomRow - usTopRow + 1;
-                else
                 {
-                    HPS     hps;
-                    POINTL  aptl[ 3 ];
+                    usLines = usBottomRow - usTopRow + 1;
+                    fClearScreen = fFullRect;
+                }
 
-                    // source
-                    aptl[ 2 ].x = rcl.xLeft;
-                    aptl[ 2 ].y = rcl.yBottom + usLines * m_lCharHeight;
-
-                    // target
-                    aptl[ 0 ].x = rcl.xLeft;
-                    aptl[ 0 ].y = rcl.yBottom;
-                    aptl[ 1 ].x = rcl.xRight;
-                    aptl[ 1 ].y = rcl.yTop - usLines * m_lCharHeight;
-
-                    setCursor( hwnd, FALSE );
-
-                    hps = WinGetPS( hwnd );
-                    GpiBitBlt( hps, hps, 3, aptl, ROP_SRCCOPY, BBO_IGNORE );
-                    WinReleasePS( hps );
-
-                    setCursor( hwnd, TRUE );
-
+                if( !fClearScreen )
+                {
                     for( y = usBottomRow; y >= usTopRow + usLines; y-- )
                     {
-                        pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
-                        memcpy( pBuf, pBuf - ( usLines * m_vmi.col ), ( usRightCol - usLeftCol + 1 ) * VIO_CELLSIZE );
+                        pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
+                        memmove( pBuf, pBuf - ( usLines * m_vmi.col ), ( usRightCol - usLeftCol + 1 ) * VIO_CELLSIZE );
                     }
+                }
+                else
+                {
+                    if( pKShellData->usBaseLineOfVioBuf + m_vmi.row > KSHELL_SCROLLBACK_LINES ) // Scroll buf full ?
+                    {
+                        pBuf = ( PUSHORT )pKShellData->pVioBuf + m_vmi.row * m_vmi.col;
+                        memmove( pKShellData->pVioBuf, pBuf, ( KSHELL_SCROLLBACK_LINES + m_vmi.row - m_vmi.row ) * m_vmi.col * VIO_CELLSIZE );
+
+                        moveBaseLineOfVioBufTo( hwnd, KSHELL_SCROLLBACK_LINES );
+                    }
+                    else
+                        moveBaseLineOfVioBuf( hwnd, m_vmi.row );
                 }
 
                 for( y = usTopRow; y < usTopRow + usLines; y++ )
                 {
-                    pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
+                    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
                     for( x = usLeftCol; x <= usRightCol; x++ )
                         *pBuf++ = usCell;
                 }
 
-                rcl.yBottom = rcl.yTop - usLines * m_lCharHeight;
-                updateWindow( hwnd, &rcl );
+                if( !pKShellData->fScrollBackMode )
+                {
+                    RECTL   rcl;
+
+                    rcl.xLeft = usLeftCol;
+                    rcl.yBottom = usBottomRow;
+                    rcl.xRight = usRightCol;
+                    rcl.yTop = usTopRow;
+                    convertVio2Win( &rcl );
+
+                    setCursor( hwnd, FALSE );
+
+                    scrollWindow( hwnd, 0, -usLines * m_lCharHeight, &rcl );
+
+                    setCursor( hwnd, TRUE );
+                }
                 break;
             }
 
             case VI_VIOSCROLLLF :
             {
                 USHORT  usCell;
-                USHORT  usLines;
+                USHORT  usCols;
                 USHORT  usRightCol;
                 USHORT  usBottomRow;
                 USHORT  usLeftCol;
                 USHORT  usTopRow;
 
-                RECTL   rcl;
-
                 PUSHORT pBuf;
+                BOOL    fFullRect;
+                BOOL    fClearScreen = FALSE;
                 INT     x, y;
 
                 DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * 2, &cbActual );
-                DosRead( m_hpipeVioSub, &usLines, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usCols, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usRightCol, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usBottomRow, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usLeftCol, sizeof( USHORT ), &cbActual );
@@ -1395,72 +1630,76 @@ static VOID pipeThread( void *arg )
                 if( usTopRow >= m_vmi.row )
                     usTopRow = m_vmi.row - 1;
 
-                rcl.xLeft = usLeftCol;
-                rcl.yBottom = usBottomRow;
-                rcl.xRight = usRightCol;
-                rcl.yTop = usTopRow;
-                convertVio2Win( &rcl );
+                fFullRect = isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol );
 
-                if( usLines >= ( usBottomRow - usTopRow + 1 ))
-                    usLines = usBottomRow - usTopRow + 1;
-                else
+                if( usCols >= ( usBottomRow - usTopRow + 1 ))
                 {
-                    HPS     hps;
-                    POINTL  aptl[ 3 ];
+                    usCols = usBottomRow - usTopRow + 1;
+                    fClearScreen = fFullRect;
+                }
 
-                    // source
-                    aptl[ 2 ].x = rcl.xLeft + usLines * m_lCharWidth;
-                    aptl[ 2 ].y = rcl.yBottom;
-
-                    // target
-                    aptl[ 0 ].x = rcl.xLeft;
-                    aptl[ 0 ].y = rcl.yBottom;
-                    aptl[ 1 ].x = rcl.xRight - usLines * m_lCharWidth;
-                    aptl[ 1 ].y = rcl.yTop;
-
-                    setCursor( hwnd, FALSE );
-
-                    hps = WinGetPS( hwnd );
-                    GpiBitBlt( hps, hps, 3, aptl, ROP_SRCCOPY, BBO_IGNORE );
-                    WinReleasePS( hps );
-
-                    setCursor( hwnd, TRUE );
-
+                if( !fClearScreen )
+                {
                     for( y = usTopRow; y <= usBottomRow; y++ )
                     {
-                        pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
-                        memmove( pBuf, pBuf + usLines, ( usRightCol - usLeftCol + 1 - usLines ) * VIO_CELLSIZE );
+                        pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
+                        memmove( pBuf, pBuf + usCols, ( usRightCol - usLeftCol + 1 - usCols ) * VIO_CELLSIZE );
                     }
+                }
+                else
+                {
+                    if( pKShellData->usBaseLineOfVioBuf + m_vmi.row > KSHELL_SCROLLBACK_LINES ) // Scroll buf full ?
+                    {
+                        pBuf = ( PUSHORT )pKShellData->pVioBuf + m_vmi.row * m_vmi.col;
+                        memmove( pKShellData->pVioBuf, pBuf, ( KSHELL_SCROLLBACK_LINES + m_vmi.row - m_vmi.row ) * m_vmi.col * VIO_CELLSIZE );
+
+                        moveBaseLineOfVioBufTo( hwnd, KSHELL_SCROLLBACK_LINES );
+                    }
+                    else
+                        moveBaseLineOfVioBuf( hwnd, m_vmi.row );
                 }
 
                 for( y = usTopRow; y <= usBottomRow; y++ )
                 {
-                    pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usRightCol - usLines + 1;
-                    for( x = usRightCol - usLines + 1; x <= usRightCol; x++ )
+                    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usRightCol - usCols + 1;
+                    for( x = usRightCol - usCols + 1; x <= usRightCol; x++ )
                         *pBuf++ = usCell;
                 }
 
-                rcl.xLeft = rcl.xRight - usLines * m_lCharWidth;
-                updateWindow( hwnd, &rcl );
-                break;
+                if( !pKShellData->fScrollBackMode )
+                {
+                    RECTL   rcl;
+
+                    rcl.xLeft = usLeftCol;
+                    rcl.yBottom = usBottomRow;
+                    rcl.xRight = usRightCol;
+                    rcl.yTop = usTopRow;
+                    convertVio2Win( &rcl );
+
+                    setCursor( hwnd, FALSE );
+
+                    scrollWindow( hwnd, -usCols * m_lCharWidth, 0, &rcl );
+
+                    setCursor( hwnd, TRUE );
+                }
             }
 
             case VI_VIOSCROLLRT :
             {
                 USHORT  usCell;
-                USHORT  usLines;
+                USHORT  usCols;
                 USHORT  usRightCol;
                 USHORT  usBottomRow;
                 USHORT  usLeftCol;
                 USHORT  usTopRow;
 
-                RECTL   rcl;
-
                 PUSHORT pBuf;
+                BOOL    fFullRect;
+                BOOL    fClearScreen = FALSE;
                 INT     x, y;
 
                 DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * 2, &cbActual );
-                DosRead( m_hpipeVioSub, &usLines, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usCols, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usRightCol, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usBottomRow, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usLeftCol, sizeof( USHORT ), &cbActual );
@@ -1478,53 +1717,58 @@ static VOID pipeThread( void *arg )
                 if( usTopRow >= m_vmi.row )
                     usTopRow = m_vmi.row - 1;
 
-                rcl.xLeft = usLeftCol;
-                rcl.yBottom = usBottomRow;
-                rcl.xRight = usRightCol;
-                rcl.yTop = usTopRow;
-                convertVio2Win( &rcl );
+                fFullRect = isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol );
 
-                if( usLines >= ( usBottomRow - usTopRow + 1 ))
-                    usLines = usBottomRow - usTopRow + 1;
-                else
+                if( usCols >= ( usBottomRow - usTopRow + 1 ))
                 {
-                    HPS     hps;
-                    POINTL  aptl[ 3 ];
+                    usCols = usBottomRow - usTopRow + 1;
+                    fClearScreen = fFullRect;
+                }
 
-                    // source
-                    aptl[ 2 ].x = rcl.xLeft;
-                    aptl[ 2 ].y = rcl.yBottom;
-
-                    // target
-                    aptl[ 0 ].x = rcl.xLeft + usLines * m_lCharWidth;
-                    aptl[ 0 ].y = rcl.yBottom;
-                    aptl[ 1 ].x = rcl.xRight;
-                    aptl[ 1 ].y = rcl.yTop;
-
-                    setCursor( hwnd, FALSE );
-
-                    hps = WinGetPS( hwnd );
-                    GpiBitBlt( hps, hps, 3, aptl, ROP_SRCCOPY, BBO_IGNORE );
-                    WinReleasePS( hps );
-
-                    setCursor( hwnd, TRUE );
-
+                if( !fClearScreen )
+                {
                     for( y = usTopRow; y <= usBottomRow; y++ )
                     {
-                        pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
-                        memmove( pBuf + usLines, pBuf, ( usRightCol - usLeftCol + 1 - usLines ) * VIO_CELLSIZE );
+                        pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
+                        memmove( pBuf + usCols, pBuf, ( usRightCol - usLeftCol + 1 - usCols ) * VIO_CELLSIZE );
                     }
+                }
+                else
+                {
+                    if( pKShellData->usBaseLineOfVioBuf + m_vmi.row > KSHELL_SCROLLBACK_LINES ) // Scroll buf full ?
+                    {
+                        pBuf = ( PUSHORT )pKShellData->pVioBuf + m_vmi.row * m_vmi.col;
+                        memmove( pKShellData->pVioBuf, pBuf, ( KSHELL_SCROLLBACK_LINES + m_vmi.row - m_vmi.row ) * m_vmi.col * VIO_CELLSIZE );
+
+                        moveBaseLineOfVioBufTo( hwnd, KSHELL_SCROLLBACK_LINES );
+                    }
+                    else
+                        moveBaseLineOfVioBuf( hwnd, m_vmi.row );
                 }
 
                 for( y = usTopRow; y <= usBottomRow; y++ )
                 {
-                    pBuf = (( PUSHORT )pKShellData->pVioBuf ) + ( y * m_vmi.col ) + usLeftCol;
-                    for( x = usLeftCol; x < usLeftCol + usLines; x++ )
+                    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
+                    for( x = usLeftCol; x < usLeftCol + usCols; x++ )
                         *pBuf++ = usCell;
                 }
 
-                rcl.xRight = rcl.xLeft + usLines * m_lCharWidth;
-                updateWindow( hwnd, &rcl );
+                if( !pKShellData->fScrollBackMode )
+                {
+                    RECTL   rcl;
+
+                    rcl.xLeft = usLeftCol;
+                    rcl.yBottom = usBottomRow;
+                    rcl.xRight = usRightCol;
+                    rcl.yTop = usTopRow;
+                    convertVio2Win( &rcl );
+
+                    setCursor( hwnd, FALSE );
+
+                    scrollWindow( hwnd, usCols * m_lCharWidth, 0, &rcl );
+
+                    setCursor( hwnd, TRUE );
+                }
                 break;
             }
             //case VI_VIOPOPUP :
