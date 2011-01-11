@@ -12,8 +12,7 @@
 #include "viosub.h"
 #include "kshell.h"
 
-#define BUF_SIZE    ( sizeof( QTOPLEVEL ) + sizeof( QGLOBAL ) + \
-                      sizeof( QPROCESS ) + sizeof( QTHREAD ))
+#define BUF_SIZE    10240
 
 static CHAR     m_achSysState[ BUF_SIZE ];
 
