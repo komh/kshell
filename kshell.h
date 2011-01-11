@@ -14,7 +14,6 @@
 #define IDM_FONT        0x02
 
 #define VIO_CELLSIZE    2
-#define VIO_SCRSIZE     ( m_vmi.col * m_vmi.row * VIO_CELLSIZE )
 
 #define KSHELL_BUFSIZE  32768
 
