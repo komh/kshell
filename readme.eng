@@ -1,4 +1,4 @@
-                             KShell v0.2.0
+                             KShell v0.4.0
                             ---------------
                             
 1. Introduction
@@ -23,8 +23,8 @@ on VIO of non-DBCS OS/2 environment.
 4. Test Environmet
 ------------------
 
-  This program is tested on OS/2 Warp v4 for Korean with FixPak #15 and Warp 
-Server for e-Business with FixPak #3.
+  This program is tested on OS/2 Warp v4 for Korean with FixPak #15 and 
+eComStation v1.2MR.
 
 5. Features
 -----------
@@ -70,11 +70,6 @@ Server for e-Business with FixPak #3.
 
   - Ctrl-Break, Ctrl-C, Ctrl-S, Ctrl-P, and so on are not supported.
   
-  - 'Courier New' font do not displayed correctly.
-  
-  - When 'Marking Mode', if any window cross over the marking area, that area 
-    is not displayed correctly.
-
 9. TODOs...
 -----------
 
@@ -84,6 +79,18 @@ Server for e-Business with FixPak #3.
   
 10. History
 ---------------
+
+  - v0.4.0 ( 2007/02/26 )
+    .'Courier New' font do not displayed correctly. Fixed.
+    .When 'Marking Mode', if any window cross over the marking area, that 
+     area is not displayed correctly. Fixed.
+    .Changing compiler to OpenWatcom v1.6 since v0.3.0 cause vioGetBuf() 
+     broken.
+    .With font association, a 'stair problem' occur. Fixed.
+    .Changing scroll function cause scroll contents leak out of scroll 
+     rectangle. Fixed.
+    .Occasionally, CPU load is up to 99.9% and KShell hang. Fixed(I hope^^)
+    
   - v0.3.0 ( 2007/01/01 )
     .Supports clipboard.
     .Minor bugs. Fixed.
