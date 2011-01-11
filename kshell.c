@@ -382,6 +382,26 @@ static VOID drawCharStringPosAt( HAB hab, PKSHELLDATA pKShellData, HPS hps, USHO
     rcl.xRight = rcl.xLeft + ( X_Vio2Win( xEnd ) - X_Vio2Win( xStart )) - 1;
     rcl.yTop = rcl.yBottom + m_lCharHeight - 1;
     GpiCharStringPosAt( hps, pptl, &rcl, CHS_OPAQUE | CHS_VECTOR, count, pchBase, palXInc );
+
+    if( pKShellData->ulKShellMode == KSM_MARKING && pKShellData->fUpdateInvertRect )
+    {
+        rclMarking.xLeft = min( pKShellData->ptsStart.x, pKShellData->ptsEnd.x );
+        rclMarking.yBottom = max( pKShellData->ptsStart.y, pKShellData->ptsEnd.y );
+        rclMarking.xRight = max( pKShellData->ptsStart.x, pKShellData->ptsEnd.x );
+        rclMarking.yTop = min( pKShellData->ptsStart.y, pKShellData->ptsEnd.y );
+        convertVio2Win( &rclMarking );
+
+        WinIntersectRect( hab, &rclMarking, &rcl, &rclMarking );
+
+        if( !WinIsRectEmpty( hab, &rclMarking ))
+        {
+            ptsStart.x = X_Win2Vio( rclMarking.xLeft );
+            ptsStart.y = Y_Win2Vio( rclMarking.yTop - 1 );
+            ptsEnd.x = X_Win2Vio( rclMarking.xRight - 1 );
+            ptsEnd.y = Y_Win2Vio( rclMarking.yBottom );
+            invertRect( hps, &ptsStart, &ptsEnd, NULL );
+        }
+    }
 }
 
 VOID updateWindow( HWND hwnd, PRECTL prcl )
@@ -490,29 +510,6 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
             free( pchBase );
 
             ptl.y -= m_lCharHeight;
-        }
-    }
-
-    if( pKShellData->ulKShellMode == KSM_MARKING &&
-        pKShellData->fUpdateInvertRect )
-    {
-        POINTS  ptsStart, ptsEnd;
-
-        rcl.xLeft = min( pKShellData->ptsStart.x, pKShellData->ptsEnd.x );
-        rcl.yBottom = max( pKShellData->ptsStart.y, pKShellData->ptsEnd.y );
-        rcl.xRight = max( pKShellData->ptsStart.x, pKShellData->ptsEnd.x );
-        rcl.yTop = min( pKShellData->ptsStart.y, pKShellData->ptsEnd.y );
-        convertVio2Win( &rcl );
-
-        WinIntersectRect( WinQueryAnchorBlock( hwnd ), &rcl, prcl, &rcl );
-
-        if( !WinIsRectEmpty( WinQueryAnchorBlock( hwnd ), &rcl ))
-        {
-            ptsStart.x = X_Win2Vio( rcl.xLeft );
-            ptsStart.y = Y_Win2Vio( rcl.yTop - 1 );
-            ptsEnd.x = X_Win2Vio( rcl.xRight - 1 );
-            ptsEnd.y = Y_Win2Vio( rcl.yBottom );
-            invertRect( hps, &ptsStart, &ptsEnd, NULL );
         }
     }
 
