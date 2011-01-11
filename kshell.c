@@ -93,6 +93,14 @@ static VOID updateWindow( HWND hwnd, PRECTL prcl );
 static VOID initScrollBackMode( HWND hwnd );
 static VOID doneScrollBackMode( HWND hwnd );
 
+static VOID initMarkingMode( HWND hwnd );
+static VOID doneMarkingMode( HWND hwnd );
+
+static VOID invertRect( HWND hwnd, PPOINTS pptsStart, PPOINTS pptsEnd, PPOINTS pptsEndNew );
+
+static VOID copyFromClipbrd( HWND hwnd );
+static VOID copyToClipbrd( HWND hwnd, BOOL fAll );
+
 static MRESULT EXPENTRY windowProc( HWND, ULONG, MPARAM, MPARAM );
 
 INT main( VOID )
@@ -193,6 +201,10 @@ static VOID convertVio2Win( PRECTL prcl )
 
 #define KSHELL_SCROLLBACK_LINES 200
 
+#define KSM_NORMAL      0L
+#define KSM_SCROLLBACK  1L
+#define KSM_MARKING     2L
+
 typedef struct tagKSHELLDATA
 {
     USHORT  x;
@@ -200,17 +212,26 @@ typedef struct tagKSHELLDATA
     VIOCURSORINFO ci;
     PVOID   pVioBuf;
     PVOID   pScrollBackBuf;
+    PVOID   pMarkingBuf;
     USHORT  usBaseLineOfVioBuf;
     USHORT  usBaseLineOfScrollBackBuf;
-    USHORT  ulLastLineOfScrollBackBuf;
+    USHORT  usLastLineOfScrollBackBuf;
     ULONG   ulBufSize;
-    BOOL    fScrollBackMode;
+    ULONG   ulKShellMode;
+    ULONG   ulKShellModePrev;
+    BOOL    fMarking;
+    BOOL    fUpdateInvertRect;
+    POINTS  ptsStart;
+    POINTS  ptsEnd;
+    HWND    hwndPopup;
 } KSHELLDATA, *PKSHELLDATA;
 
 #define getPtrOfUpdateBuf( pKShellData ) \
-    ( pKShellData->fScrollBackMode ? \
+    ( pKShellData->ulKShellMode == KSM_SCROLLBACK ? \
       (( PVOID )(( PUSHORT )( pKShellData->pScrollBackBuf ) + \
                             ( pKShellData->usBaseLineOfScrollBackBuf * m_vmi.col ))) : \
+      pKShellData->ulKShellMode == KSM_MARKING ? \
+      (( PVOID )( pKShellData->pMarkingBuf )) : \
       (( PVOID )(( PUSHORT )( pKShellData->pVioBuf ) + \
                             ( pKShellData->usBaseLineOfVioBuf * m_vmi.col ))))
 
@@ -225,7 +246,7 @@ static VOID moveBaseLineOfVioBuf( HWND hwnd, SHORT sLines )
 
     pKShellData->usBaseLineOfVioBuf += sLines;
 
-    if( !pKShellData->fScrollBackMode )
+    if( pKShellData->ulKShellMode == KSM_NORMAL )
     {
         // use WinPostMsg() instead of WinSendMsg() because the latter cause system to hang on.
         WinPostMsg( hwndVertScroll, SBM_SETSCROLLBAR, MPFROMSHORT( pKShellData->usBaseLineOfVioBuf ), MPFROM2SHORT( 0, pKShellData->usBaseLineOfVioBuf ));
@@ -239,7 +260,7 @@ static VOID moveBaseLineOfVioBufTo( HWND hwnd, SHORT sTo )
     HWND        hwndVertScroll = WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_VERTSCROLL );
 
     pKShellData->usBaseLineOfVioBuf = sTo;
-    if( !pKShellData->fScrollBackMode )
+    if( pKShellData->ulKShellMode == KSM_NORMAL )
     {
         // use WinPostMsg() instead of WinSendMsg() because the latter cause system to hang on.
         WinPostMsg( hwndVertScroll, SBM_SETSCROLLBAR, MPFROMSHORT( pKShellData->usBaseLineOfVioBuf ), MPFROM2SHORT( 0, pKShellData->usBaseLineOfVioBuf ));
@@ -255,7 +276,7 @@ static VOID setCursor( HWND hwnd, BOOL fCreate )
     WinDestroyCursor( hwnd );
 
     if(( pKShellData->ci.attr != ( USHORT )-1 ) &&
-       !pKShellData->fScrollBackMode &&
+       ( pKShellData->ulKShellMode == KSM_NORMAL ) &&
        ( WinQueryFocus( HWND_DESKTOP ) == hwnd ) &&
        fCreate )
     {
@@ -417,10 +438,32 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
         }
     }
 
+    if( pKShellData->ulKShellMode == KSM_MARKING &&
+        pKShellData->fUpdateInvertRect )
+    {
+        POINTS  ptsStart, ptsEnd;
+
+        rcl.xLeft = min( pKShellData->ptsStart.x, pKShellData->ptsEnd.x );
+        rcl.yBottom = max( pKShellData->ptsStart.y, pKShellData->ptsEnd.y );
+        rcl.xRight = max( pKShellData->ptsStart.x, pKShellData->ptsEnd.x );
+        rcl.yTop = min( pKShellData->ptsStart.y, pKShellData->ptsEnd.y );
+        convertVio2Win( &rcl );
+
+        WinIntersectRect( WinQueryAnchorBlock( hwnd ), &rcl, prcl, &rcl );
+
+        if( !WinIsRectEmpty( WinQueryAnchorBlock( hwnd ), &rcl ))
+        {
+            ptsStart.x = X_Win2Vio( rcl.xLeft );
+            ptsStart.y = Y_Win2Vio( rcl.yTop - 1 );
+            ptsEnd.x = X_Win2Vio( rcl.xRight - 1 );
+            ptsEnd.y = Y_Win2Vio( rcl.yBottom );
+            invertRect( hwnd, &ptsStart, &ptsEnd, NULL );
+        }
+    }
+
     WinReleasePS( hps );
 
     setCursor( hwnd, TRUE );
-
 }
 
 static VOID scrollWindow( HWND hwnd, LONG lDx, LONG lDy, PRECTL prcl )
@@ -501,25 +544,27 @@ VOID initScrollBackMode( HWND hwnd )
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
     CHAR        szTitle[ 50 ];
 
-    strcpy( szTitle, BASE_TITLE );
-    strcat( szTitle, " : Scroll Back Mode" );
+    strcpy( szTitle, "Scroll Back Mode : ");
+    WinQueryWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), sizeof( szTitle ), szTitle + strlen( szTitle ));
     WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), szTitle );
 
     memcpy( pKShellData->pScrollBackBuf, pKShellData->pVioBuf, pKShellData->ulBufSize );
     pKShellData->usBaseLineOfScrollBackBuf = pKShellData->usBaseLineOfVioBuf;
-    pKShellData->ulLastLineOfScrollBackBuf = pKShellData->usBaseLineOfVioBuf;
+    pKShellData->usLastLineOfScrollBackBuf = pKShellData->usBaseLineOfVioBuf;
     setCursor( hwnd, FALSE );
 
-    pKShellData->fScrollBackMode = TRUE;
+    pKShellData->ulKShellMode = KSM_SCROLLBACK;
 }
 
 VOID doneScrollBackMode( HWND hwnd )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+    CHAR        szTitle[ 50 ];
 
-    WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), BASE_TITLE );
+    WinQueryWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), sizeof( szTitle ), szTitle );
+    WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), strchr( szTitle, ':' ) + 2 );
 
-    pKShellData->fScrollBackMode = FALSE;
+    pKShellData->ulKShellMode = KSM_NORMAL;
 
     WinSendMsg( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_VERTSCROLL ),
                 SBM_SETPOS,
@@ -529,6 +574,247 @@ VOID doneScrollBackMode( HWND hwnd )
     setCursor( hwnd, TRUE );
 
     updateWindow( hwnd, NULL );
+}
+
+VOID initMarkingMode( HWND hwnd )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+    CHAR        szTitle[ 50 ];
+
+    strcpy( szTitle, "Marking Mode : ");
+    WinQueryWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), sizeof( szTitle ), szTitle + strlen( szTitle ));
+    WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), szTitle );
+
+    setCursor( hwnd, FALSE );
+
+    memcpy( pKShellData->pMarkingBuf, getPtrOfVioBuf( pKShellData ), m_vmi.row * m_vmi.col * VIO_CELLSIZE );
+
+    pKShellData->ulKShellModePrev = pKShellData->ulKShellMode;
+    pKShellData->ulKShellMode = KSM_MARKING;
+    pKShellData->fUpdateInvertRect = TRUE;
+}
+
+VOID doneMarkingMode( HWND hwnd )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+    CHAR        szTitle[ 50 ];
+
+    WinQueryWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), sizeof( szTitle ), szTitle );
+    WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), strchr( szTitle, ':' ) + 2 );
+
+    pKShellData->ulKShellMode = pKShellData->ulKShellModePrev;
+    pKShellData->fUpdateInvertRect = FALSE;
+
+    setCursor( hwnd, TRUE );
+
+    updateWindow( hwnd, NULL );
+}
+
+VOID invertRect( HWND hwnd, PPOINTS pptsStart, PPOINTS pptsEnd, PPOINTS pptsEndNew )
+{
+    HPS     hps;
+    RECTL   rcl;
+
+    hps = WinGetPS( hwnd );
+
+    rcl.xLeft = min( pptsStart->x, pptsEnd->x );
+    rcl.yBottom = max( pptsStart->y, pptsEnd->y );
+    rcl.xRight = max( pptsStart->x, pptsEnd->x );
+    rcl.yTop = min( pptsStart->y, pptsEnd->y );
+    convertVio2Win( &rcl );
+
+    if( pptsEndNew )
+    {
+        HRGN    hrgn, hrgnNew;
+        RECTL   rclNew;
+        RGNRECT rgnrc;
+
+        rclNew.xLeft = min( pptsStart->x, pptsEndNew->x );
+        rclNew.yBottom = max( pptsStart->y, pptsEndNew->y );
+        rclNew.xRight = max( pptsStart->x, pptsEndNew->x );
+        rclNew.yTop = min( pptsStart->y, pptsEndNew->y );
+        convertVio2Win( &rclNew );
+
+        hrgn = GpiCreateRegion( hps, 1, &rcl );
+        hrgnNew = GpiCreateRegion( hps, 1, &rclNew );
+
+        GpiCombineRegion( hps, hrgn, hrgn, hrgnNew, CRGN_XOR );
+
+        rgnrc.ircStart = 1;
+        //rgnrc.crc = 0;
+        rgnrc.ulDirection = RECTDIR_LFRT_TOPBOT;
+        GpiQueryRegionRects( hps, hrgn, NULL, &rgnrc, NULL );
+
+        if( rgnrc.crcReturned > 0 )
+        {
+            PRECTL  prcl;
+            int     i;
+
+            prcl = malloc( sizeof( RECTL ) * rgnrc.crcReturned );
+
+            rgnrc.crc = rgnrc.crcReturned;
+
+            GpiQueryRegionRects( hps, hrgn, NULL, &rgnrc, prcl );
+
+            for( i = 0; i < rgnrc.crcReturned; i++ )
+                WinInvertRect( hps, &prcl[ i ]);
+
+            free( prcl );
+        }
+
+        GpiDestroyRegion( hps, hrgn );
+        GpiDestroyRegion( hps, hrgnNew );
+    }
+    else
+        WinInvertRect( hps, &rcl );
+
+    WinReleasePS( hps );
+}
+
+VOID copyFromClipbrd( HWND hwnd )
+{
+    HAB hab = WinQueryAnchorBlock( hwnd );
+    PSZ pszCBText;
+
+    if( WinOpenClipbrd( hab ))
+    {
+        if(( pszCBText = ( PSZ )WinQueryClipbrdData( hab, CF_TEXT )) != 0 )
+        {
+            USHORT  fsFlags;
+            UCHAR   uchRepeat;
+            UCHAR   uchScan;
+            USHORT  usCh;
+            USHORT  usVk;
+
+            for( ; *pszCBText; pszCBText++ )
+            {
+                fsFlags = KC_CHAR;
+                uchRepeat = 0;
+                uchScan = 0;
+                usVk = 0;
+
+                usCh = *pszCBText;
+
+                if( *pszCBText == '\r' && ( pszCBText[ 1 ] == '\n' ))
+                {
+                    // for Enter-key
+                    fsFlags = KC_SCANCODE | KC_CHAR | KC_VIRTUALKEY;
+                    uchRepeat = 1;
+                    uchScan = 0x1C;
+                    usVk = VK_ENTER;
+
+                    pszCBText++;
+                }
+                else if( isDBCSLeadByte( *pszCBText ))
+                    usCh |= MAKEUSHORT( usCh, *++pszCBText );
+
+                WinPostMsg( hwnd, WM_CHAR,
+                            MPFROMSH2CH( fsFlags, uchRepeat, uchScan ),
+                            MPFROM2SHORT( usCh, usVk ));
+            }
+        }
+
+        WinCloseClipbrd( hab );
+    }
+}
+
+VOID copyToClipbrd( HWND hwnd, BOOL fAll )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    HAB     hab = WinQueryAnchorBlock( hwnd );
+
+    if( WinOpenClipbrd( hab ))
+    {
+        int     xStart, yStart;
+        int     xEnd, yEnd;
+        int     x, y;
+        int     xStart1;
+        PUSHORT pVioBufShell;
+        PCH     pchBase, pch;
+
+        if( fAll )
+        {
+            xStart = 0;
+            yStart = 0;
+            xEnd = m_vmi.col - 1;
+            yEnd = m_vmi.row - 1;
+        }
+        else
+        {
+            xStart = min( pKShellData->ptsStart.x, pKShellData->ptsEnd.x );
+            yStart = min( pKShellData->ptsStart.y, pKShellData->ptsEnd.y );
+            xEnd = max( pKShellData->ptsStart.x, pKShellData->ptsEnd.x );
+            yEnd = max(  pKShellData->ptsStart.y, pKShellData->ptsEnd.y );
+        }
+
+        DosAllocSharedMem(( PPVOID )&pchBase, NULL,
+                           (( xEnd - xStart + 1 ) + 2 ) * ( yEnd - yStart + 1 ) + 1, // 2 for '\r' and '\n', 1 for null
+                           PAG_COMMIT | PAG_READ | PAG_WRITE | OBJ_GIVEABLE );
+
+        pch = pchBase;
+
+        for( y = yStart; y <= yEnd; y++ )
+        {
+            xStart1 = xStart;
+            pVioBufShell = ( PUSHORT )getPtrOfUpdateBuf( pKShellData ) + y * m_vmi.col;
+            if( isDBCSEnv())
+            {
+                for( x = 0; x < xStart1; x++, pVioBufShell++ )
+                {
+                    if( isDBCSLeadByte( LOUCHAR( *pVioBufShell )))
+                    {
+                        x++;
+                        pVioBufShell++;
+                    }
+                }
+
+                if( xStart1 < x ) // dbcs trail byte ?
+                {
+                    *pch++ = 0x20;
+                    xStart1 = x;
+                }
+            }
+            else
+                pVioBufShell += xStart1;
+
+            for( x = xStart1; x <= xEnd; x++ )
+            {
+                if( isDBCSLeadByte( LOUCHAR( *pVioBufShell )))
+                {
+                    if( x < xEnd )
+                        *pch++ = LOUCHAR( *pVioBufShell++ );
+                    else
+                    {
+                        *pch++ = 0x20;
+                        break;
+                    }
+
+                    x++;
+                }
+
+                *pch = LOUCHAR( *pVioBufShell++ );
+                if( *pch == 0 )
+                    *pch = 0x20;
+                pch++;
+            }
+
+            // remove last contiguous spaces.
+            for( ; pch > pchBase && *( pch - 1 ) == 0x20; pch-- );
+
+            if( yStart != yEnd )
+            {
+                *pch++ = '\r';
+                *pch++ = '\n';
+            }
+        }
+
+        *pch = '\0';
+
+        WinSetClipbrdData( hab, ( ULONG )pchBase, CF_TEXT, CFI_POINTER );
+
+        WinCloseClipbrd( hab );
+    }
 }
 
 MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
@@ -552,6 +838,9 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             pKShellData->pScrollBackBuf = malloc( pKShellData->ulBufSize );
             memset( pKShellData->pScrollBackBuf, 0, pKShellData->ulBufSize );
 
+            pKShellData->pMarkingBuf = malloc( m_vmi.row * m_vmi.col * VIO_CELLSIZE );
+            memset( pKShellData->pMarkingBuf, 0, m_vmi.row * m_vmi.col * VIO_CELLSIZE );
+
             if( callVioDmn( MSG_CURINFO ))
             {
                 WinPostMsg( hwnd, WM_QUIT, 0, 0 );
@@ -560,11 +849,13 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 
             memcpy( pKShellData, m_pVioBuf, VIO_CISIZE );
 
+            pKShellData->hwndPopup = WinLoadMenu( hwnd, NULLHANDLE, ID_POPUP );
             return 0;
         }
 
         case WM_DESTROY :
         {
+            free( pKShellData->pMarkingBuf );
             free( pKShellData->pScrollBackBuf );
             free( pKShellData->pVioBuf );
             free( pKShellData );
@@ -626,7 +917,33 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             BYTE    abKbdState[ 256 ];
             BYTE    abPhysKbdState[ 256 ];
 
-            if( pKShellData->fScrollBackMode )
+            if( pKShellData->ulKShellMode == KSM_MARKING )
+            {
+                if(( SHORT1FROMMP( mp1 ) & KC_VIRTUALKEY) &&
+                   !( SHORT1FROMMP( mp1 ) & ( KC_ALT | KC_CTRL | KC_SHIFT )) &&
+                   !( SHORT1FROMMP( mp1 ) & KC_KEYUP ))
+                {
+                    switch( SHORT2FROMMP( mp2 ))
+                    {
+                        case VK_NEWLINE :
+                            copyToClipbrd( hwnd, FALSE );
+
+                        case VK_ESC :
+                            doneMarkingMode( hwnd );
+                            break;
+                    }
+                }
+
+                return MRFROMLONG( TRUE );
+            }
+
+            if(( SHORT1FROMMP( mp1 ) & KC_VIRTUALKEY ) &&
+               ( SHORT2FROMMP( mp2 ) >= 0x80 ) &&      // 0x80 for VK_DBE_FIRST
+               ( SHORT2FROMMP( mp2 ) <= 0xFF ))        // 0xFF for VK_DBE_LAST
+                return MRFROMLONG( TRUE );
+
+            if(( pKShellData->ulKShellMode == KSM_SCROLLBACK ) &&
+               !( SHORT1FROMMP( mp1 ) & KC_KEYUP ))
                 doneScrollBackMode( hwnd );
 
             WinSetKeyboardStateTable( HWND_DESKTOP, abKbdState, FALSE );
@@ -725,7 +1042,7 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 
                     hps = WinGetPS( hwnd );
 
-                    fd.cbSize=sizeof(FONTDLG);
+                    fd.cbSize = sizeof(FONTDLG);
                     fd.hpsScreen = hps;
 
                     fd.pszFamilyname = m_fat.szFacename;
@@ -769,6 +1086,17 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 
                     return 0;
                 }
+
+                case IDM_COPY :
+                case IDM_COPYALL :
+                    copyToClipbrd( hwnd, SHORT1FROMMP( mp1 ) == IDM_COPYALL  );
+                    if( pKShellData->ulKShellMode == KSM_MARKING ) // 'Copy All' can be called not in Marking Mode
+                        doneMarkingMode( hwnd );
+                    return 0;
+
+                case IDM_PASTE :
+                    copyFromClipbrd( hwnd );
+                    return 0;
             }
 
         case WM_VSCROLL :
@@ -776,12 +1104,15 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             SHORT   sSlider = SHORT1FROMMP( mp2 );
             USHORT  uscmd = SHORT2FROMMP( mp2 );
 
+            if( pKShellData->ulKShellMode == KSM_MARKING )
+                return 0;
+
             switch( uscmd )
             {
                 case SB_LINEUP :
                     if( pKShellData->usBaseLineOfVioBuf > 0 )
                     {
-                        if( !pKShellData->fScrollBackMode )
+                        if( pKShellData->ulKShellMode == KSM_NORMAL )
                             initScrollBackMode( hwnd );
 
                         if( pKShellData->usBaseLineOfScrollBackBuf > 0 )
@@ -798,9 +1129,9 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                     break;
 
                 case SB_LINEDOWN :
-                    if( pKShellData->fScrollBackMode )
+                    if( pKShellData->ulKShellMode == KSM_SCROLLBACK )
                     {
-                        if( pKShellData->usBaseLineOfScrollBackBuf + 1 == pKShellData->ulLastLineOfScrollBackBuf )
+                        if( pKShellData->usBaseLineOfScrollBackBuf + 1 == pKShellData->usLastLineOfScrollBackBuf )
                             doneScrollBackMode( hwnd );
                         else
                         {
@@ -818,7 +1149,7 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 case SB_PAGEUP :
                     if( pKShellData->usBaseLineOfVioBuf > 0 )
                     {
-                        if( !pKShellData->fScrollBackMode )
+                        if( pKShellData->ulKShellMode == KSM_NORMAL )
                             initScrollBackMode( hwnd );
 
                         if( pKShellData->usBaseLineOfScrollBackBuf > 0 )
@@ -839,9 +1170,9 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                     break;
 
                 case SB_PAGEDOWN :
-                    if( pKShellData->fScrollBackMode )
+                    if( pKShellData->ulKShellMode == KSM_SCROLLBACK )
                     {
-                        if( pKShellData->usBaseLineOfScrollBackBuf + m_vmi.row >= pKShellData->ulLastLineOfScrollBackBuf )
+                        if( pKShellData->usBaseLineOfScrollBackBuf + m_vmi.row >= pKShellData->usLastLineOfScrollBackBuf )
                             doneScrollBackMode( hwnd );
                         else
                         {
@@ -858,10 +1189,10 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 //case SB_SLIDERPOSITION :
                 case SB_SLIDERTRACK :
                 {
-                    if( !pKShellData->fScrollBackMode )
+                    if( pKShellData->ulKShellMode == KSM_NORMAL )
                         initScrollBackMode( hwnd );
 
-                    if( sSlider == pKShellData->ulLastLineOfScrollBackBuf )
+                    if( sSlider == pKShellData->usLastLineOfScrollBackBuf )
                         doneScrollBackMode( hwnd );
                     else
                     {
@@ -880,6 +1211,107 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 
             return 0;
         }
+
+        case WM_BUTTON1DOWN :
+        case WM_BUTTON2DOWN :
+        {
+            if(( WinGetKeyState( HWND_DESKTOP, VK_BUTTON1 ) & 0x8000 ) &&
+               ( WinGetKeyState( HWND_DESKTOP, VK_BUTTON2 ) & 0x8000 ))
+            {
+                copyFromClipbrd( hwnd );
+
+                return MRFROMLONG( TRUE );
+            }
+            break;
+        }
+
+        case WM_BUTTON2CLICK :
+        {
+            POINTS  pts;
+            ULONG   fs = PU_NONE | PU_KEYBOARD | PU_MOUSEBUTTON1;
+
+
+            WinEnableMenuItem( pKShellData->hwndPopup, IDM_COPY,
+                               pKShellData->ulKShellMode == KSM_MARKING );
+
+            pts.x = SHORT1FROMMP( mp1 );
+            pts.y = SHORT2FROMMP( mp1 );
+
+            WinPopupMenu( hwnd, hwnd, pKShellData->hwndPopup, pts.x, pts.y, 0, fs );
+
+            return MRFROMLONG( TRUE );
+        }
+
+        case WM_BUTTON1MOTIONSTART :
+            if( pKShellData->ulKShellMode == KSM_MARKING )
+            {
+                RECTL rcl;
+
+                rcl.xLeft = min( pKShellData->ptsStart.x, pKShellData->ptsEnd.x );
+                rcl.yBottom = max( pKShellData->ptsStart.y, pKShellData->ptsEnd.y );
+                rcl.xRight = max( pKShellData->ptsStart.x, pKShellData->ptsEnd.x );
+                rcl.yTop = min( pKShellData->ptsStart.y, pKShellData->ptsEnd.y );
+                convertVio2Win( &rcl );
+
+                pKShellData->fUpdateInvertRect = FALSE;
+                updateWindow( hwnd, &rcl );
+                pKShellData->fUpdateInvertRect = TRUE;
+            }
+            else
+                initMarkingMode( hwnd );
+
+            pKShellData->ptsEnd.x = pKShellData->ptsStart.x = X_Win2Vio( SHORT1FROMMP( mp1 ));
+            pKShellData->ptsEnd.y = pKShellData->ptsStart.y = Y_Win2Vio( SHORT2FROMMP( mp1 ));
+
+            pKShellData->fMarking = TRUE;
+
+            invertRect( hwnd, &pKShellData->ptsStart, &pKShellData->ptsEnd, NULL );
+
+            WinSetCapture( HWND_DESKTOP, hwnd );
+
+            return MRFROMLONG( TRUE );
+
+        case WM_BUTTON1MOTIONEND :
+        {
+            WinSetCapture( HWND_DESKTOP, NULLHANDLE );
+
+            pKShellData->fMarking = FALSE;
+
+            return MRFROMLONG( TRUE );
+        }
+
+        case WM_MOUSEMOVE :
+            if( pKShellData->fMarking )
+            {
+                POINTS ptsEndNew;
+                RECTL  rcl;
+
+                ptsEndNew.x = SHORT1FROMMP( mp1 );
+                ptsEndNew.y = SHORT2FROMMP( mp1 );
+
+                WinQueryWindowRect( hwnd, &rcl );
+
+                if( ptsEndNew.x < 0 )
+                    ptsEndNew.x = 0;
+
+                if( ptsEndNew.x >= rcl.xRight )
+                    ptsEndNew.x = rcl.xRight - 1;
+
+                if( ptsEndNew.y < 0 )
+                    ptsEndNew.y = 0;
+
+                if( ptsEndNew.y >= rcl.yTop )
+                    ptsEndNew.y = rcl.yTop - 1;
+
+                ptsEndNew.x = X_Win2Vio( ptsEndNew.x );
+                ptsEndNew.y = Y_Win2Vio( ptsEndNew.y );
+
+                invertRect( hwnd, &pKShellData->ptsStart, &pKShellData->ptsEnd, &ptsEndNew );
+
+                pKShellData->ptsEnd.x = ptsEndNew.x;
+                pKShellData->ptsEnd.y = ptsEndNew.y;
+            }
+            break;
     }
 
     return WinDefWindowProc( hwnd, msg, mp1, mp2 );
@@ -1178,7 +1610,7 @@ static VOID pipeThread( void *arg )
                 DosRead( m_hpipeVioSub, &usLen, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, ( PCHAR )getPtrOfVioBuf( pKShellData ) + usOfs, usLen, &cbActual );
 
-                if( !pKShellData->fScrollBackMode )
+                if( pKShellData->ulKShellMode == KSM_NORMAL )
                 {
                     usOfs /= VIO_CELLSIZE;
                     usLen /= VIO_CELLSIZE;
@@ -1205,7 +1637,7 @@ static VOID pipeThread( void *arg )
                 DosRead( m_hpipeVioSub, &pKShellData->x, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &pKShellData->y, sizeof( USHORT ), &cbActual );
 
-                if( !pKShellData->fScrollBackMode )
+                if( pKShellData->ulKShellMode == KSM_NORMAL )
                     setCursor( hwnd, TRUE );
                 break;
             }
@@ -1231,7 +1663,7 @@ static VOID pipeThread( void *arg )
 
                 memcpy( &pKShellData->ci, &vci, sizeof( VIOCURSORINFO ));
 
-                if( !pKShellData->fScrollBackMode )
+                if( pKShellData->ulKShellMode == KSM_NORMAL )
                     setCursor( hwnd, TRUE );
                 break;
             }
@@ -1260,7 +1692,7 @@ static VOID pipeThread( void *arg )
                        *pBuf = ch;
                     }
 
-                    if( !pKShellData->fScrollBackMode )
+                    if( pKShellData->ulKShellMode == KSM_NORMAL )
                     {
                         rcl.xLeft = usCol;
                         rcl.yBottom = rcl.yTop = y;
@@ -1297,7 +1729,7 @@ static VOID pipeThread( void *arg )
                        *pBuf = bAttr;
                     }
 
-                    if( !pKShellData->fScrollBackMode )
+                    if( pKShellData->ulKShellMode == KSM_NORMAL )
                     {
                         rcl.xLeft = usCol;
                         rcl.yBottom = rcl.yTop = y;
@@ -1334,7 +1766,7 @@ static VOID pipeThread( void *arg )
                        *pBuf++ = usCell;
                     }
 
-                    if( !pKShellData->fScrollBackMode )
+                    if( pKShellData->ulKShellMode == KSM_NORMAL )
                     {
                         rcl.xLeft = usCol;
                         rcl.yBottom = rcl.yTop = y;
@@ -1374,7 +1806,7 @@ static VOID pipeThread( void *arg )
                        *pBuf = MAKEUSHORT( *pch++, HIUCHAR( *pBuf ));
                     }
 
-                    if( !pKShellData->fScrollBackMode )
+                    if( pKShellData->ulKShellMode == KSM_NORMAL )
                     {
                         rcl.xLeft = usCol;
                         rcl.yBottom = rcl.yTop = y;
@@ -1417,7 +1849,7 @@ static VOID pipeThread( void *arg )
                        *pBuf++ = MAKEUSHORT( *pch++, bAttr );
                     }
 
-                    if( !pKShellData->fScrollBackMode )
+                    if( pKShellData->ulKShellMode == KSM_NORMAL )
                     {
                         rcl.xLeft = usCol;
                         rcl.yBottom = rcl.yTop = y;
@@ -1459,7 +1891,7 @@ static VOID pipeThread( void *arg )
                        *pBuf++ = *pusCell++;
                     }
 
-                    if( !pKShellData->fScrollBackMode )
+                    if( pKShellData->ulKShellMode == KSM_NORMAL )
                     {
                         rcl.xLeft = usCol;
                         rcl.yBottom = rcl.yTop = y;
@@ -1535,7 +1967,7 @@ static VOID pipeThread( void *arg )
                         *pBuf++ = usCell;
                 }
 
-                if( !pKShellData->fScrollBackMode )
+                if( pKShellData->ulKShellMode == KSM_NORMAL )
                 {
                     RECTL   rcl;
 
@@ -1624,7 +2056,7 @@ static VOID pipeThread( void *arg )
                         *pBuf++ = usCell;
                 }
 
-                if( !pKShellData->fScrollBackMode )
+                if( pKShellData->ulKShellMode == KSM_NORMAL )
                 {
                     RECTL   rcl;
 
@@ -1712,7 +2144,7 @@ static VOID pipeThread( void *arg )
                         *pBuf++ = usCell;
                 }
 
-                if( !pKShellData->fScrollBackMode )
+                if( pKShellData->ulKShellMode == KSM_NORMAL )
                 {
                     RECTL   rcl;
 
@@ -1799,7 +2231,7 @@ static VOID pipeThread( void *arg )
                         *pBuf++ = usCell;
                 }
 
-                if( !pKShellData->fScrollBackMode )
+                if( pKShellData->ulKShellMode == KSM_NORMAL )
                 {
                     RECTL   rcl;
 

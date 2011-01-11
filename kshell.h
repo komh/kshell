@@ -13,6 +13,11 @@
 #define IDM_CODEPAGE    0x01
 #define IDM_FONT        0x02
 
+#define ID_POPUP        2
+#define IDM_COPY        0x203
+#define IDM_COPYALL     0x204
+#define IDM_PASTE       0x205
+
 #define VIO_CELLSIZE    2
 
 #define KSHELL_BUFSIZE  32768
