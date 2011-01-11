@@ -265,10 +265,14 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
 
     GpiSetCharSet( hps, 1L );
 
-    sizef.cx = m_fxPointSize * m_ulHoriFontRes / 72;
-    sizef.cy = m_fxPointSize * m_ulVertFontRes / 72;
+    //sizef.cx = (( m_fxPointSize * m_ulHoriFontRes / 72 ) + 0x10000L ) & -0x20000L; // nearest even size
+    //sizef.cy = m_fxPointSize * m_ulVertFontRes / 72;
+
+    sizef.cx = MAKEFIXED( m_lCharWidth * 2, 0 );
+    sizef.cy = MAKEFIXED( m_lCharHeight, 0 );
 
     GpiSetCharBox( hps, &sizef );
+
     GpiSetBackMix( hps, BM_OVERPAINT );
 
     {
@@ -818,8 +822,12 @@ VOID initFrame( HWND hwndFrame )
     hwndClient = WinWindowFromID( hwndFrame, FID_CLIENT );
 
     hps = WinGetPS( hwndClient );
+
     GpiCreateLogFont( hps, NULL, 1L, &m_fat );
     GpiSetCharSet( hps, 1L );
+
+    //sizef.cx = (( m_fxPointSize * m_ulHoriFontRes / 72 ) + 0x10000L ) & -0x20000L; // nearest even size
+    //sizef.cy = m_fxPointSize * m_ulVertFontRes / 72;
 
     sizef.cx = m_fxPointSize * m_ulHoriFontRes / 72;
     sizef.cy = m_fxPointSize * m_ulVertFontRes / 72;
