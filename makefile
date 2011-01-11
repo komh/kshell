@@ -24,7 +24,7 @@ DEL = del
 .dlg.res :
     $(RC) -r $< $@
 
-all : viodmn.exe kshell.exe cpdlg.res viosub test.exe
+all : viodmn.exe kshell.exe cpdlg.res viosub.dll test.exe
 
 kshell.exe : kshell.obj kshell.def cpdlg.res
     $(CC) $(DBGFLAGS) $(LFLAGS) $(MTFLAGS) -o $@ $** -lbsd
@@ -37,7 +37,7 @@ test.exe : test.obj test.def
 
 cpdlg.res : cpdlg.h cpdlg.dlg
 
-viosub :
+viosub.dll :
     $(MAKE) /f viosub.mak $(MAKEPARAM)
 
 kshell.obj : kshell.c kshell.h cpdlg.h viodmn.h viosub.h
