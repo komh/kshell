@@ -244,10 +244,17 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
     SIZEF   sizef;
     int     xStart, yStart;
     int     xEnd, yEnd;
+    RECTL   rcl;
 
     setCursor( hwnd, FALSE );
 
     hps = WinGetPS( hwnd );
+
+    if( !prcl )
+    {
+        prcl = &rcl;
+        WinQueryWindowRect( hwnd, prcl );
+    }
 
     xStart = X_Win2Vio( prcl->xLeft );
     yStart = Y_Win2Vio( prcl->yTop - 1 );
