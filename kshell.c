@@ -340,6 +340,7 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
 
     {
         int     x, y;
+        int     xStart1;
         POINTL  ptl;
         PUSHORT pVioBufShell;
         PCH     pchBase, pch;
@@ -349,11 +350,12 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
         ptl.y = ( m_vmi.row - yStart - 1 ) * m_lCharHeight + m_lMaxDescender;
         for( y = yStart; y <= yEnd; y++ )
         {
+            xStart1 = xStart;
             pVioBufShell = ( PUSHORT )getPtrOfUpdateBuf( pKShellData ) + y * m_vmi.col;
             if( isDBCSEnv())
             {
 
-                for( x = 0; x < xStart; x++, pVioBufShell++ )
+                for( x = 0; x < xStart1; x++, pVioBufShell++ )
                 {
                     if( isDBCSLeadByte( LOUCHAR( *pVioBufShell )))
                     {
@@ -362,24 +364,24 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
                     }
                 }
 
-                if( xStart < x ) // dbcs trail byte ?
+                if( xStart1 < x ) // dbcs trail byte ?
                 {
                     // to dbcs lead byte
-                    xStart--;
-                    pVioBufShell -= VIO_CELLSIZE;
+                    xStart1--;
+                    pVioBufShell -= 2;
                 }
             }
             else
-                pVioBufShell += xStart;
+                pVioBufShell += xStart1;
 
-            ptl.x = xStart * m_lCharWidth;
+            ptl.x = xStart1 * m_lCharWidth;
 
-            pchBase = malloc( xEnd - xStart + 1 + 1 ); // 1 for broken DBCS, 1 for null
+            pchBase = malloc(( xEnd - xStart1 + 1 ) + 1 + 1 ); // 1 for broken DBCS, 1 for null
 
             pch = pchBase;
             usAttr = HIUCHAR( *pVioBufShell );
 
-            for( x = xStart; x <= xEnd; x++ )
+            for( x = xStart1; x <= xEnd; x++ )
             {
                 if( usAttr != HIUCHAR( *pVioBufShell ))
                 {
