@@ -96,7 +96,7 @@ static VOID doneScrollBackMode( HWND hwnd );
 static VOID initMarkingMode( HWND hwnd );
 static VOID doneMarkingMode( HWND hwnd );
 
-static VOID invertRect( HWND hwnd, PPOINTS pptsStart, PPOINTS pptsEnd, PPOINTS pptsEndNew );
+static VOID invertRect( HPS hps, PPOINTS pptsStart, PPOINTS pptsEnd, PPOINTS pptsEndNew );
 
 static VOID copyFromClipbrd( HWND hwnd );
 static VOID copyToClipbrd( HWND hwnd, BOOL fAll );
@@ -454,7 +454,7 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
             ptsStart.y = Y_Win2Vio( rcl.yTop - 1 );
             ptsEnd.x = X_Win2Vio( rcl.xRight - 1 );
             ptsEnd.y = Y_Win2Vio( rcl.yBottom );
-            invertRect( hwnd, &ptsStart, &ptsEnd, NULL );
+            invertRect( hps, &ptsStart, &ptsEnd, NULL );
         }
     }
 
@@ -607,12 +607,9 @@ VOID doneMarkingMode( HWND hwnd )
     updateWindow( hwnd, NULL );
 }
 
-VOID invertRect( HWND hwnd, PPOINTS pptsStart, PPOINTS pptsEnd, PPOINTS pptsEndNew )
+VOID invertRect( HPS hps, PPOINTS pptsStart, PPOINTS pptsEnd, PPOINTS pptsEndNew )
 {
-    HPS     hps;
     RECTL   rcl;
-
-    hps = WinGetPS( hwnd );
 
     rcl.xLeft = min( pptsStart->x, pptsEnd->x );
     rcl.yBottom = max( pptsStart->y, pptsEnd->y );
@@ -664,8 +661,6 @@ VOID invertRect( HWND hwnd, PPOINTS pptsStart, PPOINTS pptsEnd, PPOINTS pptsEndN
     }
     else
         WinInvertRect( hps, &rcl );
-
-    WinReleasePS( hps );
 }
 
 VOID copyFromClipbrd( HWND hwnd )
@@ -1240,6 +1235,9 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
         }
 
         case WM_BUTTON1MOTIONSTART :
+        {
+            HPS hps;
+
             if( pKShellData->ulKShellMode == KSM_MARKING )
             {
                 RECTL rcl;
@@ -1262,11 +1260,14 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 
             pKShellData->fMarking = TRUE;
 
-            invertRect( hwnd, &pKShellData->ptsStart, &pKShellData->ptsEnd, NULL );
+            hps = WinGetPS( hwnd );
+            invertRect( hps, &pKShellData->ptsStart, &pKShellData->ptsEnd, NULL );
+            WinReleasePS( hps );
 
             WinSetCapture( HWND_DESKTOP, hwnd );
 
             return MRFROMLONG( TRUE );
+        }
 
         case WM_BUTTON1MOTIONEND :
         {
@@ -1280,6 +1281,7 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
         case WM_MOUSEMOVE :
             if( pKShellData->fMarking )
             {
+                HPS    hps;
                 POINTS ptsEndNew;
                 RECTL  rcl;
 
@@ -1303,7 +1305,9 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 ptsEndNew.x = X_Win2Vio( ptsEndNew.x );
                 ptsEndNew.y = Y_Win2Vio( ptsEndNew.y );
 
-                invertRect( hwnd, &pKShellData->ptsStart, &pKShellData->ptsEnd, &ptsEndNew );
+                hps = WinGetPS( hwnd );
+                invertRect( hps, &pKShellData->ptsStart, &pKShellData->ptsEnd, &ptsEndNew );
+                WinReleasePS( hps );
 
                 pKShellData->ptsEnd.x = ptsEndNew.x;
                 pKShellData->ptsEnd.y = ptsEndNew.y;
