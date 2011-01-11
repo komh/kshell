@@ -780,7 +780,7 @@ void makeKeyEvent( void )
 
     keyPacket.ddFlag = 0;
 
-    if( !FKC_SCAN( fsFlags ) && FKC_CHAR( fsFlags ) && HIUCHAR( usChar )) // DBCS char ?
+    if( !FKC_SCAN( fsFlags ) && FKC_CHAR( fsFlags )) // from Clipboard or DBCS ?
     {
         keyPacket.cp.chChar = LOUCHAR( usChar );
         keyPacket.cp.chScan = 0;
@@ -789,8 +789,11 @@ void makeKeyEvent( void )
 
         DosMonWrite(( PBYTE )&m_monOut, ( PBYTE )&keyPacket, sizeof( KEYPACKET ));
 
-        keyPacket.cp.chChar = HIUCHAR( usChar );
-        DosMonWrite(( PBYTE )&m_monOut, ( PBYTE )&keyPacket, sizeof( KEYPACKET ));
+        if( HIUCHAR( usChar )) // DBCS char ?
+        {
+            keyPacket.cp.chChar = HIUCHAR( usChar );
+            DosMonWrite(( PBYTE )&m_monOut, ( PBYTE )&keyPacket, sizeof( KEYPACKET ));
+        }
 
         return;
     }
