@@ -41,7 +41,6 @@ static FATTRS   m_fat;
 static FIXED    m_fxPointSize;
 static LONG     m_lHoriFontRes;
 static LONG     m_lVertFontRes;
-static LONG     m_lCharWidth;
 static LONG     m_lCharHeight;
 static LONG     m_lMaxDescender;
 
@@ -57,8 +56,16 @@ static ULONG    m_sidVioDmn;
 static BOOL     m_afDBCSLeadByte[ 256 ] = { FALSE, };
 static BOOL     m_fDBCSEnv = FALSE;
 
-#define isDBCSEnv() ( m_fDBCSEnv )
+#define MAX_XCHARS  132
 
+static CHAR     m_achXChar[ MAX_XCHARS ];
+static POINTL   m_aptlPos[ MAX_XCHARS + 1 ];
+static LONG     m_alXInc[ MAX_XCHARS ];
+
+#define X_Vio2Win( xVio ) ( m_aptlPos[ xVio ].x )
+#define GetCharWidth( x ) ( m_alXInc[ x ])
+
+#define isDBCSEnv() ( m_fDBCSEnv )
 
 #ifndef min
 #define min( a, b ) (( a ) < ( b ) ? ( a ) : ( b ))
@@ -190,13 +197,32 @@ main_exit:
 
 static VOID convertVio2Win( PRECTL prcl )
 {
-    prcl->xLeft = prcl->xLeft * m_lCharWidth;
+    prcl->xLeft = X_Vio2Win( prcl->xLeft );
     prcl->yBottom = ( m_vmi.row - prcl->yBottom - 1 ) * m_lCharHeight;
-    prcl->xRight = ( prcl->xRight + 1 ) * m_lCharWidth;
+    prcl->xRight = X_Vio2Win( prcl->xRight + 1 );
     prcl->yTop = ( m_vmi.row - prcl->yTop ) * m_lCharHeight;
 }
 
-#define X_Win2Vio( x ) (( int )(( x ) / m_lCharWidth ))
+static int findXCol( int x )
+{
+    int left = 0;
+    int right = m_vmi.col;
+    int key = ( left + right ) / 2;
+
+    while(( x < m_aptlPos[ key ].x ) || ( x >= m_aptlPos[ key + 1 ].x ))
+    {
+        if( x < m_aptlPos[ key ].x )
+            right = key - 1;
+        else
+            left = key + 1;
+
+        key = ( left + right ) / 2;
+    }
+
+    return key;
+}
+
+#define X_Win2Vio( x ) findXCol( x )
 #define Y_Win2Vio( y ) (( int )( m_vmi.row - (( y ) / m_lCharHeight ) - 1 ))
 
 #define KSHELL_SCROLLBACK_LINES 200
@@ -284,10 +310,10 @@ static VOID setCursor( HWND hwnd, BOOL fCreate )
         USHORT usStart = m_lCharHeight * ( pKShellData->ci.yStart + 1 ) / usCellHeight;
         USHORT usEnd = m_lCharHeight * ( pKShellData->ci.cEnd + 1 ) / usCellHeight;
 
-        WinCreateCursor( hwnd, pKShellData->x * m_lCharWidth,
+        WinCreateCursor( hwnd, X_Vio2Win( pKShellData->x ),
                                ( m_vmi.row - pKShellData->y - 1 ) * m_lCharHeight +
                                ( m_lCharHeight - usEnd ),
-                               m_lCharWidth,
+                               GetCharWidth( pKShellData->x ),
                                usEnd - usStart + 1,
                                CURSOR_FLASH,
                                NULL );
@@ -318,6 +344,44 @@ static VOID setAttr( HPS hps, UCHAR uchAttr )
 
     GpiSetColor( hps, aiColorTable[ uchAttr & 0x0F ]);
     GpiSetBackColor( hps, aiColorTable[ ( uchAttr & 0xF0 ) >> 4 ]);
+}
+
+static VOID drawCharStringPosAt( HAB hab, PKSHELLDATA pKShellData, HPS hps, USHORT usAttr, PPOINTL pptl, int xStart, int count, PCH pchBase )
+{
+    PCHAR   pch;
+    int     xEnd = xStart + count;
+    int     x;
+    LONG    alXInc[ MAX_XCHARS ];
+    PLONG   palXInc;
+    RECTL   rcl;
+    POINTS  ptsStart, ptsEnd;
+    RECTL   rclMarking;
+
+    setAttr( hps, usAttr );
+    if( isDBCSEnv())
+    {
+        for( x = xStart, pch = pchBase; x < xEnd; x++, pch++ )
+        {
+            alXInc[ x ] = m_alXInc[ x ];
+            if( isDBCSLeadByte( *pch ))
+            {
+                alXInc[ x ] += m_alXInc[ x + 1 ];
+                x++, pch++;
+                alXInc[ x ] = 0;
+            }
+        }
+
+        palXInc = &alXInc[ xStart ];
+    }
+    else
+        palXInc = &GetCharWidth( xStart );
+
+    // Points on xRight and yTop are included.
+    rcl.xLeft = pptl->x;
+    rcl.yBottom = pptl->y - m_lMaxDescender;
+    rcl.xRight = rcl.xLeft + ( X_Vio2Win( xEnd ) - X_Vio2Win( xStart )) - 1;
+    rcl.yTop = rcl.yBottom + m_lCharHeight - 1;
+    GpiCharStringPosAt( hps, pptl, &rcl, CHS_OPAQUE | CHS_VECTOR, count, pchBase, palXInc );
 }
 
 VOID updateWindow( HWND hwnd, PRECTL prcl )
@@ -353,8 +417,6 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
     sizef.cy = m_fxPointSize * m_lVertFontRes / 72;
 
     GpiSetCharBox( hps, &sizef );
-
-    GpiSetBackMix( hps, BM_OVERPAINT );
 
     {
         int     x, y;
@@ -392,7 +454,7 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
             else
                 pVioBufShell += xStart1;
 
-            ptl.x = xStart1 * m_lCharWidth;
+            ptl.x = X_Vio2Win( xStart1 );
 
             pchBase = malloc(( xEnd - xStart1 + 1 ) + 1 + 1 ); // 1 for broken DBCS, 1 for null
 
@@ -404,9 +466,10 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
                 if( usAttr != HIUCHAR( *pVioBufShell ))
                 {
                     usLen = pch - pchBase;
-                    setAttr( hps, usAttr );
-                    GpiCharStringAt( hps, &ptl, usLen, pchBase );
-                    ptl.x += m_lCharWidth * usLen;
+                    drawCharStringPosAt( WinQueryAnchorBlock( hwnd ), pKShellData,
+                                         hps, usAttr, &ptl, x - usLen, usLen, pchBase );
+
+                    ptl.x = X_Vio2Win( x );
                     pch = pchBase;
                     usAttr = HIUCHAR( *pVioBufShell );
                 }
@@ -421,10 +484,8 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
             }
 
             if( pch != pchBase )
-            {
-                setAttr( hps, usAttr );
-                GpiCharStringAt( hps, &ptl, pch - pchBase, pchBase );
-            }
+                drawCharStringPosAt( WinQueryAnchorBlock( hwnd ), pKShellData,
+                                     hps, usAttr, &ptl, xStart1, pch - pchBase, pchBase );
 
             free( pchBase );
 
@@ -1440,6 +1501,7 @@ VOID initFrame( HWND hwndFrame )
     SIZEF       sizef;
     FONTMETRICS fm;
     RECTL       rcl;
+    int         i;
 
     if( fInitFirst )
     {
@@ -1474,6 +1536,8 @@ VOID initFrame( HWND hwndFrame )
         WinSendMsg( hwndSysMenu, MM_INSERTITEM, ( MPARAM )&mi, 0 );
 
         WinEnableWindow( WinWindowFromID( hwndFrame, FID_VERTSCROLL ), FALSE );
+
+        memset( m_achXChar, 'k', sizeof( m_achXChar ));
     }
 
     hwndClient = WinWindowFromID( hwndFrame, FID_CLIENT );
@@ -1488,9 +1552,12 @@ VOID initFrame( HWND hwndFrame )
 
     GpiSetCharBox( hps, &sizef );
 
+    GpiQueryCharStringPos( hps, 0, MAX_XCHARS, m_achXChar, NULL, m_aptlPos );
+    for( i = 0; i < MAX_XCHARS; i++ )
+        m_alXInc[ i ] = m_aptlPos[ i + 1 ].x - m_aptlPos[ i ].x;
+
     GpiQueryFontMetrics( hps, sizeof( FONTMETRICS ), &fm );
 
-    m_lCharWidth = fm.lAveCharWidth;
     m_lCharHeight = fm.lMaxBaselineExt + fm.lExternalLeading;
     m_lMaxDescender = fm.lMaxDescender;
 
@@ -1498,9 +1565,10 @@ VOID initFrame( HWND hwndFrame )
 
     WinQueryWindowRect( hwndClient, &rcl );
     WinMapWindowPoints( hwndClient, HWND_DESKTOP, ( PPOINTL )&rcl, 2 );
-    rcl.xRight = rcl.xLeft + m_lCharWidth * m_vmi.col;
+    rcl.xRight = rcl.xLeft + X_Vio2Win( m_vmi.col );
     rcl.yTop = rcl.yBottom + m_lCharHeight * m_vmi.row;
     WinCalcFrameRect( hwndFrame, &rcl, FALSE );
+
 
     if( fInitFirst )
     {
@@ -2158,7 +2226,7 @@ static VOID pipeThread( void *arg )
 
                     setCursor( hwnd, FALSE );
 
-                    scrollWindow( hwnd, -usCols * m_lCharWidth, 0, &rcl );
+                    scrollWindow( hwnd, X_Vio2Win( usLeftCol ) - X_Vio2Win( usLeftCol + usCols ), 0, &rcl );
 
                     setCursor( hwnd, TRUE );
                 }
@@ -2245,7 +2313,7 @@ static VOID pipeThread( void *arg )
 
                     setCursor( hwnd, FALSE );
 
-                    scrollWindow( hwnd, usCols * m_lCharWidth, 0, &rcl );
+                    scrollWindow( hwnd, X_Vio2Win( usRightCol + 1 ) - X_Vio2Win( usRightCol + 1 - usCols ), 0, &rcl );
 
                     setCursor( hwnd, TRUE );
                 }
