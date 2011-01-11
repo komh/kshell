@@ -338,6 +338,79 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
 
 }
 
+static VOID scrollWindow( HWND hwnd, LONG lDx, LONG lDy, PRECTL prcl )
+{
+#if 1
+    RECTL   rcl;
+
+    WinScrollWindow( hwnd,
+                     lDx,
+                     lDy,
+                     prcl,
+                     NULL,
+                     NULLHANDLE,
+                     &rcl,
+                     0 );
+
+    updateWindow( hwnd, &rcl );
+#else
+    HPS     hps;
+    POINTL  aptl[ 3 ];
+    RECTL   rcl;
+
+    if( !lDx && !lDy )
+        return;
+
+    if( !prcl )
+    {
+        prcl = &rcl;
+        WinQueryWindowRect( hwnd, prcl );
+    }
+
+    // source
+    aptl[ 2 ].x = prcl->xLeft;
+    if( lDx < 0 )
+        aptl[ 2 ].x -= lDx;
+
+    aptl[ 2 ].y = prcl->yBottom;
+    if( lDy < 0 )
+        aptl[ 2 ].y -= lDy;
+
+    // target
+    aptl[ 0 ].x = prcl->xLeft;
+    if( lDx > 0 )
+        aptl[ 0 ].x += lDx;
+
+    aptl[ 0 ].y = prcl->yBottom;
+    if( lDy > 0 )
+        aptl[ 0 ].y += lDy;
+
+    aptl[ 1 ].x = prcl->xRight;
+    if( lDx < 0 )
+        aptl[ 1 ].x += lDx;
+
+    aptl[ 1 ].y = prcl->yTop;
+    if( lDy < 0 )
+        aptl[ 1 ].y += lDy;
+
+    hps = WinGetPS( hwnd );
+    GpiBitBlt( hps, hps, 3, aptl, ROP_SRCCOPY, BBO_IGNORE );
+    WinReleasePS( hps );
+
+    if( lDx > 0 )
+        prcl->xRight = prcl->xLeft + lDx;
+    else if( lDx < 0 )
+        prcl->xLeft = prcl->xRight + lDx;
+
+    if( lDy > 0 )
+        prcl->yTop = prcl->yBottom + lDy;
+    else if( lDy < 0 )
+        prcl->yBottom = prcl->yTop + lDy;
+
+    updateWindow( hwnd, prcl );
+#endif
+}
+
 MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
