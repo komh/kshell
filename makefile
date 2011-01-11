@@ -9,16 +9,15 @@ AFLAGS = -zq
 CC = wcc386
 CFLAGS = -zq -wx -we -bm
 
-CL = wcl386
-
 LINK = wlink
-LFLAGS = option quiet
+LFLAGS = option quiet, map
 
 !ifdef RELEASE
+AFLAGS += -d0
 CFLAGS += -d0 -oaxt
 !else
-CFLAGS += -d2
 AFLAGS += -d2
+CFLAGS += -d2
 LFLAGS += debug all
 !endif
 
@@ -38,22 +37,28 @@ DEL = del
 .rc.res :
     $(RC) $(RCFLAGS) -r $[@ $@
 
-all : viodmn.exe kshell.exe kshell.res viosub.dll test.exe
+all : .SYMBOLIC viodmn.exe kshell.exe kshell.res viosub.dll test.exe
 
-kshell.exe : kshell.obj kshell.res
-    $(CL) $(CFLAGS) -l=os2v2_pm -fe=$@ $[@
-    $(RC) $(RCFLAGS) $]@ -fe=$@
+KSHELL_OBJS = kshell.obj
+KSHELL_RES  = kshell.res
+
+kshell.exe : $(KSHELL_OBJS) $(KSHELL_RES)
+    $(LINK) $(LFLAGS) system os2v2_pm name $@ file { $(KSHELL_OBJS) }
+    $(RC) $(RCFLAGS) $(KSHELL_RES) -fe=$@
 
 viodmn.exe : viodmn.obj
-    $(CL) $(CFLAGS) -l=os2v2 -fe=$@ $<
+    $(LINK) $(LFLAGS) system os2v2 name $@ file { $< }
 
 test.exe : test.obj
-    $(CL) $(CFLAGS) -l=os2v2 -fe=$@ $<
+    $(LINK) $(LFLAGS) system os2v2 name $@ file { $< }
 
 kshell.res : kshell.rc kshell.h cpdlg.h cpdlg.dlg
 
-viosub.dll : viosub.obj vioroute.obj viosub.lnk
-    $(LINK) $(LFLAGS) @viosub.lnk
+VIOSUB_OBJS = viosub.obj vioroute.obj
+VIOSUB_LNK  = viosub.lnk
+
+viosub.dll : $(VIOSUB_OBJS) $(VIOSUB_LNK)
+    $(LINK) $(LFLAGS) @$(VIOSUB_LNK) name $@ file { $(VIOSUB_OBJS) }
 
 kshell.obj : kshell.c kshell.h cpdlg.h viodmn.h viosub.h
 
@@ -69,14 +74,14 @@ dist : .SYMBOLIC bin src
     $(ZIP) kshell$(VER) kshellsrc.zip
     -$(DEL) kshellsrc.zip
 
-bin : kshell.exe viodmn.exe viosub.dll test.exe readme.txt readme.eng .SYMBOLIC
+bin : .SYMBOLIC kshell.exe viodmn.exe viosub.dll test.exe readme.txt readme.eng
     -$(DEL) kshell$(VER).zip
     $(ZIP) kshell$(VER) $<
 
 src : .SYMBOLIC kshell.c kshell.h kshell.rc &
       viodmn.c viodmn.h viosub.c viosub.h vioroute.asm viosub.lnk &
       dosqss.h test.c cpdlg.dlg cpdlg.h &
-      makefile .SYMBOLIC
+      makefile
     -$(DEL) kshellsrc.zip
     $(ZIP) kshellsrc $<
 
