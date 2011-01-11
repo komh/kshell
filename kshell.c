@@ -884,11 +884,10 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             RECTL   rcl;
 
             hps = WinBeginPaint( hwnd, NULLHANDLE, &rcl );
+            WinEndPaint( hps );
 
             if( !WinIsRectEmpty( WinQueryAnchorBlock( hwnd ), &rcl ))
                 updateWindow( hwnd, &rcl );
-
-            WinEndPaint( hps );
 
             return 0;
         }
