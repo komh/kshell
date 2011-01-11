@@ -67,18 +67,29 @@ static VOID pipeOpen( HPIPE *phpipe )
     } while( rc );
 }
 
+#pragma pack( 2 )
+typedef struct tagVIOGETBUFPARAM
+{
+    HVIO            hvio;
+    USHORT * _Seg16 pusLen;
+    ULONG  * _Seg16 pulLVBPtr;
+} VIOGETBUFPARAM, *PVIOGETBUFPARAM;
+#pragma pack()
+
 static ULONG vioGetBuf( USHORT usIndex, PVOID pargs )
 {
-    PVOID16 LVBPtr16;
+    PVIOGETBUFPARAM p = pargs;
+
     USHORT  rc;
 
     SkipFlag = TRUE;
-    rc = VioGetBuf(( PULONG )&LVBPtr16, &m_LVBLen, 0 );
+    rc = VioGetBuf( p->pulLVBPtr, p->pusLen, 0 );
     SkipFlag = FALSE;
 
-    m_LVBPtr = LVBPtr16;
+    m_LVBPtr = ( PCH )*( PVOID16 * )p->pulLVBPtr;
+    m_LVBLen = *p->pusLen;
 
-    return ( ULONG )-1;
+    return ( ULONG )0;
 }
 
 #pragma pack( 2 )
