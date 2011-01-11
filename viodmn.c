@@ -203,7 +203,7 @@ int main( int argc, char *argv[] )
 
     waitVioSubPipeThread();
 
-    if( VioRegister( "VIOSUB", "_VioRouter", VR_MASK1, VR_MASK2 ) == 0 )
+    if( VioRegister( "VIOSUB", "VioRouter", VR_MASK1, VR_MASK2 ) == 0 )
     {
         pszComspec = getenv( "COMSPEC" );
         if( pszComspec == NULL )

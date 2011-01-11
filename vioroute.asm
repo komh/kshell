@@ -1,8 +1,7 @@
 .386
         .MODEL  FLAT
 
-        PUBLIC  _VioRouter
-        PUBLIC  Return32bit
+        PUBLIC  VioRouter
         PUBLIC  _SkipFlag
 
         EXTRN   _Entry32Main:NEAR
@@ -16,7 +15,7 @@ CODE16          SEGMENT WORD PUBLIC USE16 'CODE'
         ALIGN   2
 
 ; 16-bit entry point
-_VioRouter:
+VioRouter:
         push    ds
         push    es
 

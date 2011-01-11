@@ -1,8 +1,6 @@
-system os2v2 dll initinstance terminstance
-option manyautodata
-name viosub
-export getSGID
-export _VioRouter
-import DosQuerySysState DOSCALLS.368
-file viosub
-file vioroute
+system  os2v2 dll initinstance terminstance
+option  manyautodata
+export  getSGID
+export  VioRouter
+import  DosQuerySysState DOSCALLS.368
+
