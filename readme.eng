@@ -1,5 +1,5 @@
-                             KShell Test Version
-                            ---------------------
+                             KShell v0.2.0
+                            ---------------
                             
 1. Introduction
 ---------------
@@ -43,6 +43,8 @@ Server for e-Business with FixPak #3.
   
   - Codepages other than primary or secondary codepage can be specified.
   
+  - Scroll-back up to 200 lines is supported.
+
 6. Installation
 ---------------
 
@@ -64,13 +66,7 @@ Server for e-Business with FixPak #3.
 
   - Ctrl-Break, Ctrl-C, Ctrl-S, Ctrl-P, and so on are not supported.
   
-  - Sometimes, a part of background is not erased.
-  
-  - When scrolling, other window cover KShell window, that part of KShell
-    window is not scrolled correctly( due to usage of GpiBitBlt(). finding
-    more sophisticated method )
-
-  - HyperView( HV.EXE ) cannot be launched( Analyzing causes. T.T ).
+  - 'Courier New' font do not displayed correctly.
 
 9. TODOs...
 -----------
@@ -82,15 +78,25 @@ Server for e-Business with FixPak #3.
 10. History
 ---------------
 
+  - v0.2.0 ( 2005/08/16 )
+    .Performance is improved greately.
+    .Sometimes, a part of background is not erased. Fixed.
+    .When scrolling, other window cover KShell window, that part of KShell
+     window is not scrolled correctly. Fixed( using WinScrollWindow() instead of
+     GpiBitBlt()).
+    .HyperView( HV.EXE ) cannot be launched. Fixed( enlarging buffer size for
+     DosQuerySysState()).
+
   - v0.1.0 ( 2005/02/28 )
-    .Use VioRegister() instead of polling method. As a result,
-     Output efficiency is improved.
+    .Use VioRegister() instead of polling method. As a result, Output efficiency
+     is improved.
     .VIO colors are correct.
     .Broken DBCS chars are displayed when inputting consecutive DBCS chars.
+     Fixed.
     .If font size is not changed even though font face is changed, window is
-     not updated. fixed.
+     not updated. Fixed.
     .In case of bitmap font such as MINCHO, it is not retrieved on next time.
-     fixed.
+     Fixed.
     .The unit of font size is changed from pel to pt.
 
   - test version ( 2005/01/19 )
