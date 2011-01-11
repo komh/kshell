@@ -472,7 +472,7 @@ static VOID scrollWindow( HWND hwnd, LONG lDx, LONG lDy, PRECTL prcl )
                      lDx,
                      lDy,
                      prcl,
-                     NULL,
+                     prcl,
                      NULLHANDLE,
                      &rcl,
                      0 );
