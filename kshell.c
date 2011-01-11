@@ -51,8 +51,8 @@ static HEV      m_hevVioDmn;
 static PID      m_pidVioDmn;
 static ULONG    m_sidVioDmn;
 
-static BOOL m_afDBCSLeadByte[ 256 ] = { FALSE, };
-static BOOL m_fDBCSEnv = FALSE;
+static BOOL     m_afDBCSLeadByte[ 256 ] = { FALSE, };
+static BOOL     m_fDBCSEnv = FALSE;
 
 #define isDBCSEnv() ( m_fDBCSEnv )
 
@@ -159,7 +159,6 @@ INT main( VOID )
     WinTerminate( hab );
 
 main_exit:
-
     done();
 
     return result;
