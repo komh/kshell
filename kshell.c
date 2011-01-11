@@ -275,7 +275,8 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
         int     x, y;
         POINTL  ptl;
         PUSHORT pVioBufShell;
-        USHORT  usChar;
+        PCH     pchBase, pch;
+        USHORT  usAttr;
         USHORT  usLen;
 
         ptl.y = ( m_vmi.row - yStart - 1 ) * m_lCharHeight + m_lMaxDescender;
@@ -307,26 +308,42 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
 
             ptl.x = xStart * m_lCharWidth;
 
+            pchBase = malloc( xEnd - xStart + 1 + 1 ); // 1 for broken DBCS, 1 for null
+
+            pch = pchBase;
+            usAttr = HIUCHAR( *pVioBufShell );
+
             for( x = xStart; x <= xEnd; x++ )
             {
-                setAttr( hps, HIUCHAR( *pVioBufShell ) );
-
-                usChar = LOUCHAR( *pVioBufShell );
-                if( isDBCSLeadByte(( UCHAR )usChar ))
+                if( usAttr != HIUCHAR( *pVioBufShell ))
                 {
-                    pVioBufShell++;
-                    usChar = MAKEUSHORT( usChar, LOUCHAR( *pVioBufShell ));
-                    usLen = 2;
+                    usLen = pch - pchBase;
+                    setAttr( hps, usAttr );
+                    GpiCharStringAt( hps, &ptl, usLen, pchBase );
+                    ptl.x += m_lCharWidth * usLen;
+                    pch = pchBase;
+                    usAttr = HIUCHAR( *pVioBufShell );
                 }
-                else
-                    usLen = 1;
 
-                GpiCharStringAt( hps, &ptl, usLen, ( PCH )&usChar );
+                if( isDBCSLeadByte( LOUCHAR( *pVioBufShell )))
+                {
+                    *pch++ = LOUCHAR( *pVioBufShell++ );
+                    x++;
+                }
 
-                ptl.x += m_lCharWidth * usLen;
-
-                pVioBufShell++;
+                *pch = LOUCHAR( *pVioBufShell++ );
+                if( *pch == 0 )
+                    *pch = 0x20;
+                pch++;
             }
+
+            if( pch != pchBase )
+            {
+                setAttr( hps, usAttr );
+                GpiCharStringAt( hps, &ptl, pch - pchBase, pchBase );
+            }
+
+            free( pchBase );
 
             ptl.y -= m_lCharHeight;
         }
