@@ -911,7 +911,11 @@ void termVioSubPipeThread( void )
                       NULL );
         if( rc == ERROR_PIPE_BUSY )
             while( DosWaitNPipe( m_szVioSubPipeName, -1 ) == ERROR_INTERRUPT );
-    } while( rc != 0 );
+
+        if( rc )
+            DosSleep( 1 );
+
+    } while( rc );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
 
