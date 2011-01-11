@@ -481,7 +481,8 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 
             memcpy( &rcl, ( void * )mp2, sizeof( RECTL ));
             WinMapWindowPoints( WinQueryWindow( hwnd, QW_PARENT ), hwnd, ( PPOINTL )&rcl, 2 );
-            WinInvalidateRect( hwnd, &rcl, FALSE );
+            //WinInvalidateRect( hwnd, &rcl, FALSE );
+            updateWindow( hwnd, &rcl );
             return 0;
         }
 #endif
@@ -591,7 +592,8 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 
                             PrfWriteProfileString( HINI_USERPROFILE, PRF_APP, PRF_KEY_CP, szCP );
 
-                            WinInvalidateRect( hwnd, NULL, FALSE );
+                            //WinInvalidateRect( hwnd, NULL, FALSE );
+                            updateWindow( hwnd, NULL );
                         }
 
                         WinDestroyWindow( hwndDlg );
@@ -646,8 +648,9 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                         PrfWriteProfileString( HINI_USERPROFILE, PRF_APP, PRF_KEY_WIDTH, szNum );
 
                         initFrame( WinQueryWindow( hwnd, QW_PARENT ));
-                        WinInvalidateRect( hwnd, NULL, FALSE );
-                        setCursor( hwnd, TRUE );
+                        //WinInvalidateRect( hwnd, NULL, FALSE );
+                        //setCursor( hwnd, TRUE );
+                        updateWindow( hwnd, NULL );
                     }
 
                     WinReleasePS( hps );
