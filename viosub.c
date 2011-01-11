@@ -29,9 +29,6 @@ extern APIRET APIENTRY DosQuerySysState (ULONG func,
                 PVOID buf,
                 ULONG bufsz);
 
-int  _CRT_init( void );
-void _CRT_term( void );
-
 ULONG APIENTRY getSGID( VOID )
 {
     PQTOPLEVEL  pQTopLevel = ( PQTOPLEVEL )m_achSysState;
@@ -151,7 +148,7 @@ static ULONG vioSetCurPos( USHORT usIndex, PVOID pargs )
 typedef struct tagVIOSETCURTYPEPARAM
 {
     HVIO                    hvio;
-    PVIOCURSORINFO  _Seg16  pvci;
+    VIOCURSORINFO * _Seg16  pvci;
 } VIOSETCURTYPEPARAM, *PVIOSETCURTYPEPARAM;
 #pragma pack()
 
@@ -179,7 +176,7 @@ typedef struct tagVIOWRTNCHARPARAM
     USHORT          usCol;
     USHORT          usRow;
     USHORT          usTimes;
-    PCH     _Seg16  pch;
+    CHAR  * _Seg16  pch;
 } VIOWRTNCHARPARAM, *PVIOWRTNCHARPARAM;
 #pragma pack()
 
@@ -210,7 +207,7 @@ typedef struct tagVIOWRTNATTRPARAM
     USHORT          usCol;
     USHORT          usRow;
     USHORT          usTimes;
-    PBYTE   _Seg16  pbAttr;
+    BYTE  * _Seg16  pbAttr;
 } VIOWRTNATTRPARAM, *PVIOWRTNATTRPARAM;
 #pragma pack()
 
@@ -241,7 +238,7 @@ typedef struct tagVIOWRTNCELLPARAM
     USHORT          usCol;
     USHORT          usRow;
     USHORT          usTimes;
-    PBYTE   _Seg16  pbCell;
+    BYTE  * _Seg16  pbCell;
 } VIOWRTNCELLPARAM, *PVIOWRTNCELLPARAM;
 #pragma pack()
 
@@ -272,7 +269,7 @@ typedef struct tagVIOWRTCHARSTRPARAM
     USHORT          usCol;
     USHORT          usRow;
     USHORT          usLen;
-    PCH     _Seg16  pchCharStr;
+    CHAR  * _Seg16  pchCharStr;
 } VIOWRTCHARSTRPARAM, *PVIOWRTCHARSTRPARAM;
 #pragma pack()
 
@@ -300,11 +297,11 @@ static ULONG vioWrtCharStr( USHORT usIndex, PVOID pargs )
 typedef struct tagVIOWRTCHARSTRATTPARAM
 {
     HVIO            hvio;
-    PBYTE   _Seg16  pbAttr;
+    BYTE  * _Seg16  pbAttr;
     USHORT          usCol;
     USHORT          usRow;
     USHORT          usLen;
-    PCH     _Seg16  pchCharStr;
+    CHAR  * _Seg16  pchCharStr;
 } VIOWRTCHARSTRATTPARAM, *PVIOWRTCHARSTRATTPARAM;
 #pragma pack()
 
@@ -336,7 +333,7 @@ typedef struct tagVIOWRTCELLSTRPARAM
     USHORT          usCol;
     USHORT          usRow;
     USHORT          usLen;
-    PCH     _Seg16  pchCellStr;
+    CHAR  * _Seg16  pchCellStr;
 } VIOWRTCELLSTRPARAM, *PVIOWRTCELLSTRPARAM;
 #pragma pack()
 
@@ -364,7 +361,7 @@ static ULONG vioWrtCellStr( USHORT usIndex, PVOID pargs )
 typedef struct tagVIOSCROLLUPPARAM
 {
     HVIO            hvio;
-    PBYTE   _Seg16  pbCell;
+    BYTE  * _Seg16  pbCell;
     USHORT          usLines;
     USHORT          usRightCol;
     USHORT          usBotRow;
@@ -399,7 +396,7 @@ static ULONG vioScrollUp( USHORT usIndex, PVOID pargs )
 typedef struct tagVIOSCROLLDNPARAM
 {
     HVIO            hvio;
-    PBYTE   _Seg16  pbCell;
+    BYTE  * _Seg16  pbCell;
     USHORT          usLines;
     USHORT          usRightCol;
     USHORT          usBotRow;
@@ -434,7 +431,7 @@ static ULONG vioScrollDn( USHORT usIndex, PVOID pargs )
 typedef struct tagVIOSCROLLLFPARAM
 {
     HVIO            hvio;
-    PBYTE   _Seg16  pbCell;
+    BYTE  * _Seg16  pbCell;
     USHORT          usLines;
     USHORT          usRightCol;
     USHORT          usBotRow;
@@ -469,7 +466,7 @@ static ULONG vioScrollLf( USHORT usIndex, PVOID pargs )
 typedef struct tagVIOSCROLLRTPARAM
 {
     HVIO            hvio;
-    PBYTE   _Seg16  pbCell;
+    BYTE  * _Seg16  pbCell;
     USHORT          usLines;
     USHORT          usRightCol;
     USHORT          usBotRow;
@@ -540,28 +537,16 @@ ULONG __cdecl Entry32Main( vioargs * args )
     return ( ULONG )-1;
 }
 
-unsigned long _System _DLL_InitTerm( unsigned long hmod, unsigned long ulFlag )
+unsigned APIENTRY LibMain( unsigned hmod, unsigned termination )
 {
-    switch( ulFlag )
+    if( !termination )
     {
-        case 0 : /* for initialize */
-            if( _CRT_init() == -1 )
-                return 0UL;
+        getSGID();
 
-            getSGID();
-
-            strcpy( m_szPipeName, PIPE_KSHELL_VIOSUB_BASE );
-            _ultoa( m_ulSGID, m_szPipeName + strlen( m_szPipeName ), 16 );
-            break;
-
-        case 1 : /* for termination */
-            _CRT_term();
-            break;
-
-        default :
-            return 0UL;
+        strcpy( m_szPipeName, PIPE_KSHELL_VIOSUB_BASE );
+        _ultoa( m_ulSGID, m_szPipeName + strlen( m_szPipeName ), 16 );
     }
 
-    return 1UL;
+    return 1;
 }
 

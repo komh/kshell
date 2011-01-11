@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <process.h>
 
 #include "kshell.h"
 #include "viodmn.h"
@@ -38,11 +39,11 @@ static VIOMODEINFO  m_vmi;
 
 static FATTRS   m_fat;
 static FIXED    m_fxPointSize;
-static ULONG    m_ulHoriFontRes;
-static ULONG    m_ulVertFontRes;
-static ULONG    m_lCharWidth;
-static ULONG    m_lCharHeight;
-static ULONG    m_lMaxDescender;
+static LONG     m_lHoriFontRes;
+static LONG     m_lVertFontRes;
+static LONG     m_lCharWidth;
+static LONG     m_lCharHeight;
+static LONG     m_lMaxDescender;
 
 static PBYTE    m_pVioBuf = NULL;
 static CHAR     m_szPipeName[ PIPE_VIODMN_LEN ];
@@ -58,7 +59,14 @@ static BOOL     m_fDBCSEnv = FALSE;
 
 #define isDBCSEnv() ( m_fDBCSEnv )
 
+
+#ifndef min
 #define min( a, b ) (( a ) < ( b ) ? ( a ) : ( b ))
+#endif
+
+#ifndef max
+#define max( a, b ) (( a ) > ( b ) ? ( a ) : ( b ))
+#endif
 
 static ULONG    m_ulSGID = ( ULONG )-1;
 static HPIPE    m_hpipeVioSub = NULLHANDLE;
@@ -320,8 +328,8 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
 
     GpiSetCharSet( hps, 1L );
 
-    //sizef.cx = (( m_fxPointSize * m_ulHoriFontRes / 72 ) + 0x10000L ) & -0x20000L; // nearest even size
-    //sizef.cy = m_fxPointSize * m_ulVertFontRes / 72;
+    //sizef.cx = (( m_fxPointSize * m_lHoriFontRes / 72 ) + 0x10000L ) & -0x20000L; // nearest even size
+    //sizef.cy = m_fxPointSize * m_lVertFontRes / 72;
 
     sizef.cx = MAKEFIXED( m_lCharWidth * 2, 0 );
     sizef.cy = MAKEFIXED( m_lCharHeight, 0 );
@@ -902,7 +910,7 @@ BOOL init( VOID )
 
     DosCreateEventSem( szSem, &m_hevVioDmn, DC_SEM_SHARED, 0 );
 
-    srandom( time( NULL ));
+    srand( time( NULL ));
 
     PrfQueryProfileString( HINI_USERPROFILE, PRF_APP, PRF_KEY_FONT, DEFAULT_FONT_FACE, m_fat.szFacename, FACESIZE );
 
@@ -928,8 +936,8 @@ BOOL init( VOID )
 
     hps = WinGetScreenPS( HWND_DESKTOP );
     hdc = GpiQueryDevice( hps );
-    DevQueryCaps( hdc, CAPS_HORIZONTAL_FONT_RES, 1, &m_ulHoriFontRes );
-    DevQueryCaps( hdc, CAPS_VERTICAL_FONT_RES, 1, &m_ulVertFontRes );
+    DevQueryCaps( hdc, CAPS_HORIZONTAL_FONT_RES, 1, &m_lHoriFontRes );
+    DevQueryCaps( hdc, CAPS_VERTICAL_FONT_RES, 1, &m_lVertFontRes );
     WinReleasePS( hps );
 
     return TRUE;
@@ -971,8 +979,8 @@ static VOID randomizeRect( PRECTL prcl )
 
     LONG    newX, newY;
 
-    newX = ( random() % ( cxScreen - ( prcl->xRight - prcl->xLeft )));
-    newY = ( random() % ( cyScreen - ( prcl->yTop - prcl->yBottom )));
+    newX = ( rand() % ( cxScreen - ( prcl->xRight - prcl->xLeft )));
+    newY = ( rand() % ( cyScreen - ( prcl->yTop - prcl->yBottom )));
 
     prcl->xRight = newX + ( prcl->xRight - prcl->xLeft );
     prcl->yTop = newY + ( prcl->yTop - prcl->yBottom );
@@ -1036,11 +1044,11 @@ VOID initFrame( HWND hwndFrame )
     GpiCreateLogFont( hps, NULL, 1L, &m_fat );
     GpiSetCharSet( hps, 1L );
 
-    //sizef.cx = (( m_fxPointSize * m_ulHoriFontRes / 72 ) + 0x10000L ) & -0x20000L; // nearest even size
-    //sizef.cy = m_fxPointSize * m_ulVertFontRes / 72;
+    //sizef.cx = (( m_fxPointSize * m_lHoriFontRes / 72 ) + 0x10000L ) & -0x20000L; // nearest even size
+    //sizef.cy = m_fxPointSize * m_lVertFontRes / 72;
 
-    sizef.cx = m_fxPointSize * m_ulHoriFontRes / 72;
-    sizef.cy = m_fxPointSize * m_ulVertFontRes / 72;
+    sizef.cx = m_fxPointSize * m_lHoriFontRes / 72;
+    sizef.cy = m_fxPointSize * m_lVertFontRes / 72;
 
     GpiSetCharBox( hps, &sizef );
 
@@ -1853,4 +1861,6 @@ VOID donePipeThreadForVioSub( VOID )
     while( DosWaitThread( &m_tidPipeThread, DCWW_WAIT ) == ERROR_INTERRUPT );
 
     DosClose( m_hpipeVioSub );
+
+    _endthread();
 }

@@ -10,11 +10,35 @@
 #include <stdlib.h>
 #include <string.h>
 #include <process.h>
-#include <ctype.h>
-#include <sys/wait.h>
 
 #include "kshell.h"
 #include "viodmn.h"
+
+// ----- from os2emx.h
+typedef struct tagMONIN
+{
+  USHORT    cb;
+  BYTE      abReserved[18];
+  BYTE      abBuffer[108];
+} MONIN, *PMONIN;
+
+typedef struct tagMONOUT
+{
+  USHORT    cb;
+  UCHAR     buffer[18];
+  BYTE      abBuf[108];
+} MONOUT, *PMONOUT;
+
+#define VR_VIOMODEWAIT          0x00000001
+#define VR_VIOMODEUNDO          0x00000002
+#define VR_VIOGETFONT           0x00000004
+#define VR_VIOGETCONFIG         0x00000008
+#define VR_VIOSETCP             0x00000010
+#define VR_VIOGETCP             0x00000020
+#define VR_VIOSETFONT           0x00000040
+#define VR_VIOGETSTATE          0x00000080
+#define VR_VIOSETSTATE          0x00000100
+// -----
 
 #define VR_MASK1 (  \
                     VR_VIOGETCURPOS         |\
@@ -186,7 +210,7 @@ int main( int argc, char *argv[] )
             pszComspec = "CMD.EXE";
 
         m_pid_comspec = spawnlp( P_NOWAIT, pszComspec, pszComspec, NULL );
-        waitpid( m_pid_comspec, NULL, 0 );
+        cwait( NULL, m_pid_comspec, WAIT_CHILD );
 
         VioDeRegister();
     }
@@ -222,7 +246,9 @@ void init( PSZ pszPid )
     m_monIn.cb = sizeof( MONIN );
     m_monOut.cb = sizeof( MONOUT );
 
-    DosMonReg( m_hmon, ( PBYTE )&m_monIn, ( PBYTE )&m_monOut, MONITOR_END, -1 );
+    DosMonReg( m_hmon, ( PBYTE )&m_monIn, ( PBYTE )&m_monOut,
+               2,   // 0 for Default, 1 for First, 2 for Last
+               -1 );
 
     m_tid_kbdmon = _beginthread( kbdmonThread, NULL, 32768, NULL );
 
@@ -304,6 +330,8 @@ void kbdmonThread( void *arg )
         if( DosMonRead(( PBYTE )&m_monIn, MON_WAIT, ( PBYTE )&keyPacket, &usLen ) == 0 )
             DosMonWrite(( PBYTE )&m_monOut, ( PBYTE )&keyPacket, usLen );
     }
+
+    _endthread();
 }
 
 void pipeThread( void *arg )
@@ -348,6 +376,8 @@ void pipeThread( void *arg )
 
         DosDisConnectNPipe( m_hpipe );
     } while( !m_fQuit );
+
+    _endthread();
 }
 
 void getCurInfo( void )

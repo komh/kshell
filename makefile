@@ -1,66 +1,86 @@
-.SUFFIXES : .h .c .o .obj .exe .res .dlg .dll .map
+.ERASE
 
-CC = gcc
-CFLAGS = -Wall -Zomf -O3
-MTFLAGS = -Zmt
-LFLAGS = -Zomf -Zmap -Zlinker /map
-DLLFLAGS = -Zdll -Zsys -Zso
+.SUFFIXES :
+.SUFFIXES : .exe .dll .res .obj .h .asm .c .dlg .rc
+
+AS = wasm
+AFLAGS = -zq
+
+CC = wcc386
+CFLAGS = -zq -wx -we -bm
+
+CL = wcl386
+
+LINK = wlink
+LFLAGS = option quiet
 
 !ifdef RELEASE
-MAKEPARAM = RELEASE=1
+CFLAGS += -d0 -oaxt
 !else
-DBGFLAGS = -g
+CFLAGS += -d2
+AFLAGS += -d2
+LFLAGS += debug all
 !endif
 
-RC = rc
+RC = wrc
+RCFLAGS = -q
 
 ZIP = zip
 
 DEL = del
 
+.asm.obj :
+    $(AS) $(AFLAGS) -fo=$@ $[@
+
 .c.obj :
-    $(CC) $(DBGFLAGS) $(CFLAGS) $(MTFLAGS) -o $@ -c $<
+    $(CC) $(CFLAGS) -fo=$@ $[@
 
-.dlg.res :
-    $(RC) -r $< $@
+.rc.res :
+    $(RC) $(RCFLAGS) -r $[@ $@
 
-all : viodmn.exe kshell.exe cpdlg.res viosub.dll test.exe
+all : viodmn.exe kshell.exe kshell.res viosub.dll test.exe
 
-kshell.exe : kshell.obj kshell.def cpdlg.res
-    $(CC) $(DBGFLAGS) $(LFLAGS) $(MTFLAGS) -o $@ $** -lbsd
+kshell.exe : kshell.obj kshell.res
+    $(CL) $(CFLAGS) -l=os2v2_pm -fe=$@ $[@
+    $(RC) $(RCFLAGS) $]@ -fe=$@
 
-viodmn.exe : viodmn.obj viodmn.def
-    $(CC) $(DBGFLAGS) $(LFLAGS) $(MTFLAGS) -o $@ $**
+viodmn.exe : viodmn.obj
+    $(CL) $(CFLAGS) -l=os2v2 -fe=$@ $<
 
-test.exe : test.obj test.def
-    $(CC) $(DBGFLAGS) $(LFLAGS) -o $@ $**
+test.exe : test.obj
+    $(CL) $(CFLAGS) -l=os2v2 -fe=$@ $<
 
-cpdlg.res : cpdlg.h cpdlg.dlg
+kshell.res : kshell.rc kshell.h cpdlg.h cpdlg.dlg
 
-viosub.dll :
-    $(MAKE) /f viosub.mak $(MAKEPARAM)
+viosub.dll : viosub.obj vioroute.obj viosub.lnk
+    $(LINK) $(LFLAGS) @viosub.lnk
 
 kshell.obj : kshell.c kshell.h cpdlg.h viodmn.h viosub.h
 
 viodmn.obj : viodmn.c kshell.h cpdlg.h viodmn.h
 
+viosub.obj : viosub.c dosqss.h viosub.h kshell.h cpdlg.h
+
+vioroute.obj : vioroute.asm
+
 test.obj : test.c
 
-dist : bin src
+dist : .SYMBOLIC bin src
     $(ZIP) kshell$(VER) kshellsrc.zip
     -$(DEL) kshellsrc.zip
 
-bin : kshell.exe viodmn.exe viosub.dll test.exe readme.txt readme.eng
-    -$(DEL) kshell$(VER)
-    $(ZIP) kshell$(VER) $**
+bin : kshell.exe viodmn.exe viosub.dll test.exe readme.txt readme.eng .SYMBOLIC
+    -$(DEL) kshell$(VER).zip
+    $(ZIP) kshell$(VER) $<
 
-src : kshell.c kshell.h kshell.def viodmn.c viodmn.h viodmn.def viosub.c viosub.h \
-      dosqss.h vioroute.asm viosub.def viosub.mak test.c test.def cpdlg.dlg cpdlg.h \
-      makefile
-    -$(DEL) kshellsrc
-    $(ZIP) kshellsrc $**
+src : .SYMBOLIC kshell.c kshell.h kshell.rc &
+      viodmn.c viodmn.h viosub.c viosub.h vioroute.asm viosub.lnk &
+      dosqss.h test.c cpdlg.dlg cpdlg.h &
+      makefile .SYMBOLIC
+    -$(DEL) kshellsrc.zip
+    $(ZIP) kshellsrc $<
 
-clean :
+clean : .SYMBOLIC
     -$(DEL) *.map
     -$(DEL) *.obj
     -$(DEL) *.dll
