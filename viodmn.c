@@ -301,9 +301,8 @@ void kbdmonThread( void *arg )
     {
         usLen = sizeof( keyPacket );
 
-        DosMonRead(( PBYTE )&m_monIn, MON_WAIT, ( PBYTE )&keyPacket, &usLen );
-
-        DosMonWrite(( PBYTE )&m_monOut, ( PBYTE )&keyPacket, usLen );
+        if( DosMonRead(( PBYTE )&m_monIn, MON_WAIT, ( PBYTE )&keyPacket, &usLen ) == 0 )
+            DosMonWrite(( PBYTE )&m_monOut, ( PBYTE )&keyPacket, usLen );
     }
 }
 
