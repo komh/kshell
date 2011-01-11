@@ -3,6 +3,7 @@
 
         PUBLIC  _VioRouter
         PUBLIC  Return32bit
+        PUBLIC  SkipFlag
 
         EXTRN   _Entry32Main:NEAR
         EXTRN   DosSelToFlat:NEAR
@@ -18,6 +19,7 @@ CODE16          SEGMENT WORD PUBLIC USE16 'CODE'
 _VioRouter:
         push    ds
         push    es
+
         jmp far ptr FLAT:Entry32bit
 
         ALIGN   2
@@ -39,6 +41,12 @@ Entry32bit:
         mov ds,eax              ; ds = FLAT
         mov es,eax              ; es = FLAT
 
+        cmp dword ptr [SkipFlag], 0
+        jz  continue
+        mov ax, -1
+        jmp far ptr CODE16:Return16bit
+
+continue:
         mov word ptr [STACK16],sp       ; sp - lo word
         mov word ptr [STACK16+2],ss     ; ss - hi word
 
@@ -71,9 +79,9 @@ CODE32          ENDS
 DATA32      SEGMENT DWORD PUBLIC USE32 'DATA'
 
         ALIGN   4
+SkipFlag        DD  0
 STACK16         DD  ?
 TMP_STACK   DB  STACK_SIZE DUP (0)
-
 DATA32      ENDS
 
 

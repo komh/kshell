@@ -58,6 +58,8 @@ static BOOL     m_fDBCSEnv = FALSE;
 
 #define isDBCSEnv() ( m_fDBCSEnv )
 
+#define min( a, b ) (( a ) < ( b ) ? ( a ) : ( b ))
+
 static ULONG    m_ulSGID = ( ULONG )-1;
 static HPIPE    m_hpipeVioSub = NULLHANDLE;
 static TID      m_tidPipeThread = 0;
@@ -1153,7 +1155,41 @@ static VOID pipeThread( void *arg )
 
         switch( usIndex )
         {
-            //case VI_VIOSHOWBUF :
+            case VI_VIOSHOWBUF :
+            {
+                USHORT  usOfs;
+                USHORT  usLen;
+                USHORT  usRow;
+                USHORT  usCol;
+                INT     y;
+                RECTL   rcl;
+
+                DosRead( m_hpipeVioSub, &usOfs, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usLen, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, ( PCHAR )getPtrOfVioBuf( pKShellData ) + usOfs, usLen, &cbActual );
+
+                if( !pKShellData->fScrollBackMode )
+                {
+                    usOfs /= VIO_CELLSIZE;
+                    usLen /= VIO_CELLSIZE;
+                    usRow = usOfs / m_vmi.col;
+                    usCol = usOfs % m_vmi.col;
+
+                    for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
+                    {
+                        rcl.xLeft = usCol;
+                        rcl.yBottom = rcl.yTop = y;
+                        rcl.xRight = min( usCol + usLen, m_vmi.col ) - 1;
+                        usLen -= rcl.xRight - rcl.xLeft + 1;
+                        convertVio2Win( &rcl );
+                        updateWindow( hwnd, &rcl );
+
+                        usCol = 0;
+                    }
+                }
+                break;
+            }
+
             case VI_VIOSETCURPOS :
             {
                 DosRead( m_hpipeVioSub, &pKShellData->x, sizeof( USHORT ), &cbActual );

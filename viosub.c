@@ -19,6 +19,11 @@ static CHAR     m_achSysState[ BUF_SIZE ];
 static ULONG    m_ulSGID = ( ULONG )-1;
 static CHAR     m_szPipeName[ PIPE_KSHELL_VIOSUB_LEN ];
 
+static PCH      m_LVBPtr = NULL;
+static USHORT   m_LVBLen = 0;
+
+extern BOOL     SkipFlag;
+
 extern APIRET APIENTRY DosQuerySysState (ULONG func,
                 ULONG par1, ULONG pid, ULONG _reserved_,
                 PVOID buf,
@@ -59,6 +64,60 @@ static VOID pipeOpen( HPIPE *phpipe )
         if( rc == ERROR_PIPE_BUSY )
             while( DosWaitNPipe( m_szPipeName, -1 ) == ERROR_INTERRUPT );
     } while( rc == ERROR_PIPE_BUSY );
+}
+
+static ULONG vioGetBuf( USHORT usIndex, PVOID pargs )
+{
+    PVOID16 LVBPtr16;
+    USHORT  rc;
+
+    SkipFlag = TRUE;
+    rc = VioGetBuf(( PULONG )&LVBPtr16, &m_LVBLen, 0 );
+    SkipFlag = FALSE;
+
+    m_LVBPtr = LVBPtr16;
+
+    return ( ULONG )-1;
+}
+
+#pragma pack( 2 )
+typedef struct tagVIOSHOWBUFPARAM
+{
+    HVIO    hvio;
+    USHORT  usLen;
+    USHORT  usOfs;
+} VIOSHOWBUFPARAM, *PVIOSHOWBUFPARAM;
+#pragma pack()
+
+static ULONG vioShowBuf( USHORT usIndex, PVOID pargs )
+{
+    PVIOSHOWBUFPARAM p = pargs;
+
+    HPIPE   hpipe;
+    ULONG   cbActual;
+
+    if( m_LVBPtr )
+    {
+        USHORT  usStart = p->usOfs & -2;
+        USHORT  usEnd = ( p->usOfs + p->usLen + 1 ) & -2;
+        USHORT  usLen;
+
+        if( usEnd > m_LVBLen )
+            usEnd = m_LVBLen;
+
+        usLen = usEnd - usStart;
+
+        pipeOpen( &hpipe );
+
+        DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+        DosWrite( hpipe, &usStart, sizeof( USHORT ), &cbActual );
+        DosWrite( hpipe, &usLen, sizeof( USHORT ), &cbActual );
+        DosWrite( hpipe, m_LVBPtr + usStart, usLen, &cbActual );
+
+        DosClose( hpipe );
+    }
+
+    return ( ULONG )-1;
 }
 
 #pragma pack( 2 )
@@ -459,7 +518,8 @@ ULONG __cdecl Entry32Main( vioargs * args )
 {
     switch( args->Index )
     {
-        //case VI_VIOSHOWBUF       : return vioShowBuf( args->Index, &args->VioHandle );
+        case VI_VIOGETBUF        : return vioGetBuf( args->Index, &args->VioHandle );
+        case VI_VIOSHOWBUF       : return vioShowBuf( args->Index, &args->VioHandle );
         case VI_VIOSETCURPOS     : return vioSetCurPos( args->Index, &args->VioHandle);
         case VI_VIOSETCURTYPE    : return vioSetCurType( args->Index, &args->VioHandle );
         //case VI_VIOSETMODE       : return vioSetMode( args->Index, &args->VioHandle );
