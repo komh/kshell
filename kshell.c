@@ -417,10 +417,7 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
                     x++;
                 }
 
-                *pch = LOUCHAR( *pVioBufShell++ );
-                if( *pch == 0 )
-                    *pch = 0x20;
-                pch++;
+                *pch++ = LOUCHAR( *pVioBufShell++ );
             }
 
             if( pch != pchBase )
@@ -817,6 +814,10 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
     {
         case WM_CREATE :
         {
+            PUSHORT pVioBuf;
+            int     cells;
+            int     i;
+
             pKShellData = ( PKSHELLDATA )malloc( sizeof( KSHELLDATA ));
             memset( pKShellData, 0, sizeof( KSHELLDATA ));
 
@@ -825,7 +826,11 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             pKShellData->ulBufSize = ( KSHELL_SCROLLBACK_LINES + m_vmi.row ) * m_vmi.col * VIO_CELLSIZE;
 
             pKShellData->pVioBuf = malloc( pKShellData->ulBufSize );
-            memset( pKShellData->pVioBuf, 0, pKShellData->ulBufSize );
+
+            pVioBuf = pKShellData->pVioBuf;
+            cells = pKShellData->ulBufSize / VIO_CELLSIZE;
+            for( i = 0; i < cells; i++ )
+                *pVioBuf++ = 0x720;
 
             pKShellData->pScrollBackBuf = malloc( pKShellData->ulBufSize );
             memset( pKShellData->pScrollBackBuf, 0, pKShellData->ulBufSize );
