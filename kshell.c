@@ -30,6 +30,8 @@
 #define DEFAULT_CHAR_HEIGHT 16
 #define DEFAULT_CHAR_WIDTH  8
 
+#define BASE_TITLE      "KShell"
+
 static VIOMODEINFO  m_vmi;
 
 static FATTRS   m_fat;
@@ -134,7 +136,7 @@ INT main( VOID )
                 WS_VISIBLE,                 // frame window style
                 &flFrameFlags,              // window style
                 WC_KSHELL,                  // class name
-                "KShell",                   // window title
+                BASE_TITLE,                 // window title
                 0L,                         // default client style
                 NULLHANDLE,                 // resource in exe file
                 ID_KSHELL,                  // frame window id
@@ -289,7 +291,7 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
                 {
                     // to dbcs lead byte
                     xStart--;
-                    pVioBufShell -= 2;
+                    pVioBufShell -= VIO_CELLSIZE;
                 }
             }
             else
