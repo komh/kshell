@@ -819,6 +819,19 @@ void makeKeyEvent( void )
     }
     else if( CAS_CTRL( fsFlags ))
     {
+        switch( uchScan )
+        {
+            case 0x2E : // CTRL-C
+                if( !FKC_KEYUP( fsFlags ))
+                    DosSendSignalException( m_pid_comspec, XCPT_SIGNAL_INTR );
+                return;
+
+            case 0x5F : // CTRL-BREAK
+                if( !FKC_KEYUP( fsFlags ))
+                    DosSendSignalException( m_pid_comspec, XCPT_SIGNAL_BREAK );
+                return;
+        }
+
         keyPacket.cp.chChar = m_abPMScanToVio[ uchScan ][ 3 ];
         keyPacket.cp.chScan = m_abPMScanToVio[ uchScan ][ 1 ];
 
@@ -830,15 +843,7 @@ void makeKeyEvent( void )
             keyPacket.cp.fbStatus |= ST_EXTENDED_KEY;
         else
         {
-            // TODO : CTRL-C, CTRL-BREAK, CTRL-P, CTRL-S, ...
-#if 0
-            switch( keyPacket.cp.chChar )
-            {
-                case 0x03 : // CTRL-C
-                    keyPacket.ddFlag |= DDF_PSEUDOBREAKKEY;
-                    break;
-            }
-#endif
+            // TODO : CTRL-P, CTRL-S, ...
         }
     }
     else
