@@ -133,13 +133,13 @@ typedef struct tagMONOUT
 #define ST_INTERIM                 0x80
 #define ST_FINAL_INTERIM_ON        ( 0x80 | 0x40 )
 
-#define CAS_NONE( f )   ( !(( f ) & ( KC_CTRL | KC_ALT | KC_SHIFT )))
 #define CAS_CTRL( f )   (( f ) & KC_CTRL )
 #define CAS_ALT( f )    (( f ) & KC_ALT )
 #define CAS_SHIFT( f )  (( f ) & KC_SHIFT )
-#define CAS_CO( f )     (( f ) & KC_CTRL ) && !(( f ) & ( KC_ALT | KC_SHIFT )))
-#define CAS_AO( f )     (( f ) & KC_ALT ) && !(( f ) & ( KC_CTRL | KC_SHIFT )))
-#define CAS_SO( f )     (( f ) & KC_SHIFT ) && !(( f ) & ( KC_CTRL | KC_ALT )))
+#define CAS_CO( f )     ( CAS_CTRL( f ) && !CAS_ALT( f ) && !CAS_SHIFT( f ))
+#define CAS_AO( f )     ( !CAS_CTRL( f ) && CAS_ALT( f ) && !CAS_SHIFT( f ))
+#define CAS_SO( f )     ( !CAS_CTRL( f ) && !CAS_ALT( f ) && CAS_SHIFT( f ))
+#define CAS_NONE( f )   ( !CAS_CTRL( f ) && !CAS_ALT( f ) && !CAS_SHIFT( f ))
 
 #define FKC_CHAR( f )   (( f ) & KC_CHAR )
 #define FKC_SCAN( f )   (( f ) & KC_SCANCODE )
