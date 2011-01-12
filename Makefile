@@ -38,16 +38,18 @@ DEL = del
 .rc.res :
 	$(RC) $(RCFLAGS) -r $[@ $@
 
-KSHELL_OBJS = kshell.obj ft2lib.obj
-
 all : .SYMBOLIC viodmn.exe kshell.exe kshell.res viosub.dll test.exe
+
+KSHELL_OBJS = kshell.obj ft2lib.obj
 
 kshell.exe : $(KSHELL_OBJS) kshell.res
 	$(LINK) $(LFLAGS) system os2v2_pm library libuls, libconv name $@ file { $(KSHELL_OBJS) }
 	$(RC) $(RCFLAGS) kshell.res -fe=$@
 
-viodmn.exe : viodmn.obj
-	$(LINK) $(LFLAGS) system os2v2 name $@ file { $< }
+VIODMN_OBJS = viodmn.obj
+
+viodmn.exe : viodmn.obj viodmn.lnk
+	$(LINK) $(LFLAGS) @viodmn.lnk name $@ file { $(VIODMN_OBJS) }
 
 test.exe : test.obj
 	$(LINK) $(LFLAGS) system os2v2 name $@ file { $< }
@@ -84,7 +86,7 @@ bin : .SYMBOLIC kshell.exe viodmn.exe viosub.dll test.exe readme.txt readme.eng
 	$(ZIP) kshell$(VER) $<
 
 src : .SYMBOLIC kshell.c kshell.h kshell.rc kshell.ico ft2lib.c ft2lib.h &
-	  viodmn.c viodmn.h viosub.c viosub.h vioroute.asm viosub.lnk &
+	  viodmn.c viodmn.h viodmn.lnk viosub.c viosub.h vioroute.asm viosub.lnk &
 	  dosqss.h test.c cpdlg.dlg cpdlg.h &
 	  makefile
 	-$(DEL) kshellsrc.zip
