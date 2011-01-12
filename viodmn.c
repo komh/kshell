@@ -25,6 +25,10 @@
 #define dprintf( ... )
 #endif
 
+#ifndef fGETNMSHR
+#define fGETNMSHR ( fPERM )
+#endif
+
 // ----- from os2emx.h
 typedef struct tagMONIN
 {
@@ -419,7 +423,7 @@ void getCurInfo( void )
     VIOCURSORINFO   ci;
     PCHAR   pKBuf;
 
-    DosGetNamedSharedMem(( PVOID )&pKBuf, m_szMemName, PAG_WRITE );
+    DosGetNamedSharedMem(( PVOID )&pKBuf, m_szMemName, fGETNMSHR );
 
     VioGetCurPos( &usRow, &usCol, 0 );
     VioGetCurType( &ci, 0 );
@@ -440,7 +444,7 @@ void getVioInfo( void )
 {
     PUSHORT       pKBuf;
 
-    DosGetNamedSharedMem(( PVOID )&pKBuf, m_szMemName, PAG_READ | PAG_WRITE );
+    DosGetNamedSharedMem(( PVOID )&pKBuf, m_szMemName, fGETNMSHR );
 
     *pKBuf = sizeof( VIOMODEINFO );
     VioGetMode(( PVIOMODEINFO )pKBuf, 0 );
@@ -452,7 +456,7 @@ void getSGID( void )
 {
     PULONG  pKBuf;
 
-    DosGetNamedSharedMem(( PVOID )&pKBuf, m_szMemName, PAG_READ | PAG_WRITE );
+    DosGetNamedSharedMem(( PVOID )&pKBuf, m_szMemName, fGETNMSHR );
 
     *pKBuf = m_ulSGID;
 
@@ -734,7 +738,7 @@ void makeKeyEvent( void )
     BYTE        abPhysKbdState[ 256 ];
     KEYPACKET   keyPacket;
 
-    DosGetNamedSharedMem(( PVOID )&pmp, m_szMemName, PAG_READ );
+    DosGetNamedSharedMem(( PVOID )&pmp, m_szMemName, fGETNMSHR );
 
     mp1 = *pmp++;
     mp2 = *pmp++;
