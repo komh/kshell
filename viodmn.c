@@ -1,5 +1,4 @@
 #define INCL_DOS
-#define INCL_DOSMONITORS
 #define INCL_DOSERRORS
 #define INCL_VIO
 #define INCL_KBD
