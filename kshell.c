@@ -1173,17 +1173,20 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 
         case WM_CHAR :
         {
+            USHORT  fsFlags = SHORT1FROMMP( mp1 );
+            USHORT  usVk = SHORT2FROMMP( mp2 );
             PMPARAM pmp;
             BYTE    abKbdState[ 256 ];
             BYTE    abPhysKbdState[ 256 ];
 
             if( pKShellData->ulKShellMode == KSM_MARKING )
             {
-                if(( SHORT1FROMMP( mp1 ) & KC_VIRTUALKEY) &&
-                   !( SHORT1FROMMP( mp1 ) & ( KC_ALT | KC_CTRL | KC_SHIFT )) &&
-                   !( SHORT1FROMMP( mp1 ) & KC_KEYUP ))
+                if(!( fsFlags & KC_KEYUP ) &&
+                   !( fsFlags & ( KC_ALT | KC_CTRL | KC_SHIFT )) &&
+                    ( fsFlags & KC_VIRTUALKEY))
+
                 {
-                    switch( SHORT2FROMMP( mp2 ))
+                    switch( usVk )
                     {
                         case VK_NEWLINE :
                             copyToClipbrd( hwnd, FALSE );
@@ -1197,13 +1200,13 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 return MRFROMLONG( TRUE );
             }
 
-            if(( SHORT1FROMMP( mp1 ) & KC_VIRTUALKEY ) &&
-               ( SHORT2FROMMP( mp2 ) >= 0x80 ) &&      // 0x80 for VK_DBE_FIRST
-               ( SHORT2FROMMP( mp2 ) <= 0xFF ))        // 0xFF for VK_DBE_LAST
+            if(( fsFlags & KC_VIRTUALKEY ) &&
+               ( usVk >= 0x80 ) &&              // 0x80 for VK_DBE_FIRST
+               ( usVk <= 0xFF ))                // 0xFF for VK_DBE_LAST
                 return MRFROMLONG( TRUE );
 
             if(( pKShellData->ulKShellMode == KSM_SCROLLBACK ) &&
-               !( SHORT1FROMMP( mp1 ) & KC_KEYUP ))
+               !( fsFlags & KC_KEYUP ))
                 doneScrollBackMode( hwnd );
 
             WinSetKeyboardStateTable( HWND_DESKTOP, abKbdState, FALSE );
