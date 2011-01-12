@@ -321,7 +321,7 @@ void initSGID( void )
     CHAR    szFailName[ 256 ];
     HMODULE hmod;
 
-    DosLoadModule( szFailName, sizeof( szFailName ), "VIOSUB.DLL", &hmod );
+    DosLoadModule( szFailName, sizeof( szFailName ), "VIOSUB", &hmod );
     DosQueryProcAddr( hmod, 0, "getSGID", ( PFN * )&pfn_getSGID );
 
     m_ulSGID = pfn_getSGID();
