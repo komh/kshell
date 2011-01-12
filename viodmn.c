@@ -421,9 +421,11 @@ void getCurInfo( void )
     USHORT  usRow;
     USHORT  usCol;
     VIOCURSORINFO   ci;
+    PVOID   pKBufBase;
     PCHAR   pKBuf;
 
-    DosGetNamedSharedMem(( PVOID )&pKBuf, m_szMemName, fGETNMSHR );
+    DosGetNamedSharedMem( &pKBufBase, m_szMemName, fGETNMSHR );
+    pKBuf = pKBufBase;
 
     VioGetCurPos( &usRow, &usCol, 0 );
     VioGetCurType( &ci, 0 );
@@ -437,7 +439,7 @@ void getCurInfo( void )
     memcpy( pKBuf, &ci, sizeof( ci ));
     pKBuf += sizeof( ci );
 
-    DosFreeMem( pKBuf );
+    DosFreeMem( pKBufBase );
 }
 
 void getVioInfo( void )
@@ -726,6 +728,7 @@ static BYTE m_abPMScanToVio[256][ 4 ] =
 
 void makeKeyEvent( void )
 {
+    PVOID       pmpBase;
     PULONG      pmp;
     ULONG       mp1;
     ULONG       mp2;
@@ -738,14 +741,15 @@ void makeKeyEvent( void )
     BYTE        abPhysKbdState[ 256 ];
     KEYPACKET   keyPacket;
 
-    DosGetNamedSharedMem(( PVOID )&pmp, m_szMemName, fGETNMSHR );
+    DosGetNamedSharedMem( &pmpBase, m_szMemName, fGETNMSHR );
 
+    pmp = pmpBase;
     mp1 = *pmp++;
     mp2 = *pmp++;
     memcpy( abKbdState, pmp, sizeof( abKbdState ));
     memcpy( abPhysKbdState, (( PBYTE )pmp ) + sizeof( abKbdState ), sizeof( abPhysKbdState ));
 
-    DosFreeMem( pmp );
+    DosFreeMem( pmpBase );
 
     fsFlags = SHORT1FROMMP( mp1 );
     uchRepeat = CHAR3FROMMP( mp1 );
