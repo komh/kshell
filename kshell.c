@@ -85,7 +85,7 @@ static VOID done( VOID );
 static VOID initDBCSEnv( USHORT usCP );
 static VOID initFrame( HWND hwndFrame );
 
-#define     isDBCSLeadByte( uch ) ( m_afDBCSLeadByte[( uch )])
+#define     isDBCSLeadByte( uch ) ( m_afDBCSLeadByte[( BYTE )( uch )])
 
 static BOOL callVioDmn( USHORT usMsg );
 
