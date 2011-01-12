@@ -41,6 +41,4 @@
 
 #define KSHELLM_INITFRAME   ( WM_USER + 1 )
 
-APIRET16 _Far16 _Pascal DosSMPause( USHORT );
-
 #endif

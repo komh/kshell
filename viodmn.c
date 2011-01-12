@@ -169,6 +169,8 @@ typedef struct tagKEYPACKET
    USHORT     ddFlag;
 } KEYPACKET, *PKEYPACKET;
 
+APIRET16 _Far16 _Pascal DosSMPause( USHORT );
+
 static MONIN  m_monIn;
 static MONOUT m_monOut;
 
