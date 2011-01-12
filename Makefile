@@ -72,7 +72,10 @@ vioroute.obj : vioroute.asm
 
 test.obj : test.c
 
-dist : .SYMBOLIC bin src
+dist : .SYMBOLIC
+    $(MAKE) clean
+    $(MAKE) RELEASE=1 bin
+    $(MAKE) RELEASE=1 src
     $(ZIP) kshell$(VER) kshellsrc.zip
     -$(DEL) kshellsrc.zip
 
