@@ -11,6 +11,20 @@
 #include "viosub.h"
 #include "kshell.h"
 
+#ifdef DEBUG
+#include <stdio.h>
+
+#define dprintf( ... ) \
+{\
+    FILE *fp;\
+    fp = fopen("viosub.log", "at");\
+    fprintf( fp, __VA_ARGS__ );\
+    fclose( fp );\
+}
+#else
+#define dprintf( ... )
+#endif
+
 #define BUF_SIZE    10240
 
 static CHAR     m_achSysState[ BUF_SIZE ];

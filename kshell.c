@@ -16,6 +16,19 @@
 #include "viosub.h"
 
 #define TID_KSHELL  ( TID_USERMAX - 1 )
+#ifdef DEBUG
+#include <stdio.h>
+
+#define dprintf( ... ) \
+{\
+    FILE *fp;\
+    fp = fopen("kshell.log", "at");\
+    fprintf( fp, __VA_ARGS__ );\
+    fclose( fp );\
+}
+#else
+#define dprintf( ... )
+#endif
 
 #define PRF_APP         "KSHELL"
 #define PRF_KEY_CP      "CODEPAGE"

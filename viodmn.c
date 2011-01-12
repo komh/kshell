@@ -13,6 +13,18 @@
 #include "kshell.h"
 #include "viodmn.h"
 
+#ifdef DEBUG
+#define dprintf( ... ) \
+{\
+    FILE *fp;\
+    fp = fopen("viodmn.log", "at");\
+    fprintf( fp, __VA_ARGS__ );\
+    fclose( fp );\
+}
+#else
+#define dprintf( ... )
+#endif
+
 // ----- from os2emx.h
 typedef struct tagMONIN
 {
