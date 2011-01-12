@@ -228,8 +228,6 @@ int main( int argc, char *argv[] )
 void init( PSZ pszPid )
 {
     CHAR    szSemKShell[ SEM_VIODMN_KSHELL_LEN ];
-    CHAR    szSemVioDmn[ SEM_KSHELL_VIODMN_LEN ];
-    HEV     hevVioDmn = 0;
 
     initSGID();
 
@@ -237,12 +235,6 @@ void init( PSZ pszPid )
 
     strcpy( m_szMemName, MEM_KSHELL_VIOBUF_BASE );
     strcat( m_szMemName, pszPid );
-
-    strcpy( m_szPipeName, PIPE_VIODMN_BASE );
-    strcat( m_szPipeName, pszPid );
-
-    strcpy( szSemKShell, SEM_VIODMN_KSHELL_BASE );
-    strcat( szSemKShell, pszPid );
 
     DosMonOpen( "KBD$", &m_hmon );
 
@@ -257,6 +249,9 @@ void init( PSZ pszPid )
 
     DosSetPriority( PRTYS_THREAD, PRTYC_TIMECRITICAL, 0, m_tid_kbdmon );
 
+    strcpy( m_szPipeName, PIPE_VIODMN_BASE );
+    strcat( m_szPipeName, pszPid );
+
     DosCreateNPipe( m_szPipeName,
                     &m_hpipe,
                     NP_ACCESS_DUPLEX,
@@ -265,28 +260,23 @@ void init( PSZ pszPid )
                     MSG_PIPE_SIZE,
                     0 );
 
-    m_tid_pipe = _beginthread( pipeThread, NULL, 32768, NULL );
+    m_tid_pipe = _beginthread( pipeThread, NULL, 32768, pszPid );
+
+    strcpy( szSemKShell, SEM_VIODMN_KSHELL_BASE );
+    strcat( szSemKShell, pszPid );
 
     DosCreateEventSem( szSemKShell, &m_hevKShell, DC_SEM_SHARED, 0 );
-
-    strcpy( szSemVioDmn, SEM_KSHELL_VIODMN_BASE );
-    strcat( szSemVioDmn, pszPid );
-
-    DosOpenEventSem( szSemVioDmn, &hevVioDmn );
-    DosPostEventSem( hevVioDmn );
-    DosCloseEventSem( hevVioDmn );
 }
 
 void done( void )
 {
+    DosCloseEventSem( m_hevKShell );
+
     while( DosWaitThread( &m_tid_pipe, DCWW_WAIT ) == ERROR_INTERRUPT );
+    DosClose( m_hpipe );
 
     DosMonClose( m_hmon );
     while( DosWaitThread( &m_tid_kbdmon, DCWW_WAIT ) == ERROR_INTERRUPT );
-
-    DosClose( m_hpipe );
-
-    DosCloseEventSem( m_hevKShell );
 }
 
 void initSGID( void )
@@ -337,8 +327,18 @@ void kbdmonThread( void *arg )
 
 void pipeThread( void *arg )
 {
+    CHAR    szSemVioDmn[ SEM_KSHELL_VIODMN_LEN ];
+    HEV     hevVioDmn = 0;
+
     USHORT  usMsg;
     ULONG   cbActual;
+
+    strcpy( szSemVioDmn, SEM_KSHELL_VIODMN_BASE );
+    strcat( szSemVioDmn, arg );
+
+    DosOpenEventSem( szSemVioDmn, &hevVioDmn );
+    DosPostEventSem( hevVioDmn );
+    DosCloseEventSem( hevVioDmn );
 
     do
     {

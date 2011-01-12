@@ -1670,8 +1670,18 @@ static VOID pipeThread( void *arg )
     HWND        hwnd = ( HWND )arg;
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
 
+    CHAR szSem[ SEM_VIODMN_KSHELL_LEN ];
+    HEV  hev = 0;
+
     USHORT usIndex;
     ULONG  cbActual;
+
+    strcpy( szSem, SEM_VIODMN_KSHELL_BASE );
+    strcat( szSem, m_szPid );
+
+    DosOpenEventSem( szSem, &hev );
+    DosPostEventSem( hev );
+    DosCloseEventSem( hev );
 
     do
     {
@@ -2348,8 +2358,6 @@ static VOID pipeThread( void *arg )
 VOID initPipeThreadForVioSub( HWND hwnd )
 {
     CHAR szName[ PIPE_KSHELL_VIOSUB_LEN ];
-    CHAR szSem[ SEM_VIODMN_KSHELL_LEN ];
-    HEV  hev = 0;
 
     strcpy( szName, PIPE_KSHELL_VIOSUB_BASE );
     _ultoa( m_ulSGID, szName + strlen( szName ), 16 );
@@ -2363,13 +2371,6 @@ VOID initPipeThreadForVioSub( HWND hwnd )
                     0 );
 
     m_tidPipeThread = _beginthread( pipeThread, NULL, 32768, ( void * )hwnd );
-
-    strcpy( szSem, SEM_VIODMN_KSHELL_BASE );
-    strcat( szSem, m_szPid );
-
-    DosOpenEventSem( szSem, &hev );
-    DosPostEventSem( hev );
-    DosCloseEventSem( hev );
 }
 
 VOID donePipeThreadForVioSub( VOID )
