@@ -18,8 +18,8 @@ AFLAGS += -d0
 CFLAGS += -d0 -oaxt
 !else
 AFLAGS += -d2
-CFLAGS += -d2
-LFLAGS += debug all
+CFLAGS += -d2 -DDEBUG
+LFLAGS += debug watcom all
 !endif
 
 RC = wrc
