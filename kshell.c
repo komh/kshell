@@ -2351,12 +2351,10 @@ VOID initPipeThreadForVioSub( HWND hwnd )
     CHAR szSem[ SEM_VIODMN_KSHELL_LEN ];
     HEV  hev = 0;
 
-    ULONG rc;
-
     strcpy( szName, PIPE_KSHELL_VIOSUB_BASE );
     _ultoa( m_ulSGID, szName + strlen( szName ), 16 );
 
-    rc = DosCreateNPipe( szName,
+    DosCreateNPipe( szName,
                     &m_hpipeVioSub,
                     NP_ACCESS_DUPLEX,
                     NP_WAIT | NP_TYPE_MESSAGE | NP_READMODE_MESSAGE | 0x01,
