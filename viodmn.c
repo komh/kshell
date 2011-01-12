@@ -173,6 +173,9 @@ static HMONITOR  m_hmon;
 static TID       m_tid_pipe;
 static TID       m_tid_kbdmon;
 
+static TID      m_tid_packet;
+static HQUEUE   m_hqPacket;
+
 static void init( PSZ pszPid );
 static void done( void );
 static void initSGID( void );
@@ -186,6 +189,9 @@ static void sendAck( void );
 static void getSGID( void );
 static void waitVioSubPipeThread( void );
 static void termVioSubPipeThread( void );
+static void packetRead( PKEYPACKET pkp );
+static void packetWrite( PKEYPACKET pkp );
+static void packetThread( void *arg );
 
 int main( int argc, char *argv[] )
 {
@@ -228,6 +234,7 @@ int main( int argc, char *argv[] )
 void init( PSZ pszPid )
 {
     CHAR    szSemKShell[ SEM_VIODMN_KSHELL_LEN ];
+    CHAR    szQueueName[ 80 ];
 
     initSGID();
 
@@ -247,6 +254,12 @@ void init( PSZ pszPid )
 
     m_tid_kbdmon = _beginthread( kbdmonThread, NULL, 32768, NULL );
 
+    strcpy( szQueueName, "\\QUEUES\\VIODMN\\" );
+    strcat( szQueueName, pszPid );
+
+    DosCreateQueue( &m_hqPacket, QUE_FIFO | QUE_CONVERT_ADDRESS, szQueueName );
+
+    m_tid_packet = _beginthread( packetThread, NULL, 32768, NULL );
 
     strcpy( m_szPipeName, PIPE_VIODMN_BASE );
     strcat( m_szPipeName, pszPid );
@@ -269,10 +282,17 @@ void init( PSZ pszPid )
 
 void done( void )
 {
+    KEYPACKET keyPacket;
+
     DosCloseEventSem( m_hevKShell );
 
     while( DosWaitThread( &m_tid_pipe, DCWW_WAIT ) == ERROR_INTERRUPT );
     DosClose( m_hpipe );
+
+    keyPacket.monFlag = -1;
+    packetWrite( &keyPacket );
+    while( DosWaitThread( &m_tid_packet, DCWW_WAIT ) == ERROR_INTERRUPT );
+    DosCloseQueue( m_hqPacket );
 
     DosMonClose( m_hmon );
     while( DosWaitThread( &m_tid_kbdmon, DCWW_WAIT ) == ERROR_INTERRUPT );
@@ -787,12 +807,12 @@ void makeKeyEvent( void )
 
         DosQuerySysInfo( QSV_MS_COUNT, QSV_MS_COUNT, &keyPacket.cp.time, sizeof( ULONG ));
 
-        DosMonWrite(( PBYTE )&m_monOut, ( PBYTE )&keyPacket, sizeof( KEYPACKET ));
+        packetWrite( &keyPacket );
 
         if( HIUCHAR( usChar )) // DBCS char ?
         {
             keyPacket.cp.chChar = HIUCHAR( usChar );
-            DosMonWrite(( PBYTE )&m_monOut, ( PBYTE )&keyPacket, sizeof( KEYPACKET ));
+            packetWrite( &keyPacket );
         }
 
         return;
@@ -888,8 +908,7 @@ void makeKeyEvent( void )
 #endif
 
     DosQuerySysInfo( QSV_MS_COUNT, QSV_MS_COUNT, &keyPacket.cp.time, sizeof( ULONG ));
-
-    DosMonWrite(( PBYTE )&m_monOut, ( PBYTE )&keyPacket, sizeof( KEYPACKET ));
+    packetWrite( &keyPacket );
 }
 
 void sendAck( void )
@@ -936,4 +955,40 @@ void termVioSubPipeThread( void )
     DosClose( hpipe );
 }
 
+void packetRead( PKEYPACKET pkp )
+{
+    PKEYPACKET  pKeyPacket;
+    REQUESTDATA rd;
+    ULONG       cbData;
+    BYTE        bPriority;
+
+    DosReadQueue( m_hqPacket, &rd, &cbData, &pKeyPacket, 0, DCWW_WAIT, &bPriority, 0 );
+
+    memcpy( pkp, pKeyPacket, sizeof( KEYPACKET ));
+    free( pKeyPacket );
+}
+
+void packetWrite( PKEYPACKET pkp )
+{
+    PKEYPACKET pKeyPacket;
+
+    pKeyPacket = malloc( sizeof( KEYPACKET ));
+    memcpy( pKeyPacket, pkp, sizeof( KEYPACKET ));
+
+    DosWriteQueue( m_hqPacket, 0x1234, sizeof( KEYPACKET ), pKeyPacket, 0 );
+}
+
+void packetThread( void *arg )
+{
+    KEYPACKET keyPacket;
+
+    for(;;)
+    {
+        packetRead( &keyPacket );
+        if( keyPacket.monFlag == ( USHORT )-1 )
+            break;
+
+        DosMonWrite(( PBYTE )&m_monOut, ( PBYTE )&keyPacket, sizeof( KEYPACKET ));
+    }
+}
 
