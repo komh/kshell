@@ -52,6 +52,11 @@ static VIOMODEINFO  m_vmi;
 
 #define VIO_CISIZE      ( sizeof( USHORT ) * 2 + sizeof( VIOCURSORINFO ))
 
+#define MAX_CP_NAME     12      // maximum length of a codepage name
+#define MAX_CP_SPEC     64      // maximum length of a UconvObject codepage specifier
+
+static ATOM     m_cfUnicode;    // atom for "text/unicode" clipboard format
+
 static FATTRS   m_fat;
 static FIXED    m_fxPointSize;
 static LONG     m_lHoriFontRes;
@@ -138,6 +143,7 @@ static VOID doneMarkingMode( HWND hwnd );
 
 static VOID invertRect( HPS hps, PPOINTS pptsStart, PPOINTS pptsEnd, PPOINTS pptsEndNew );
 
+static VOID insertCBText( HWND hwnd, PSZ pszCBText );
 static VOID copyFromClipbrd( HWND hwnd );
 static VOID copyToClipbrd( HWND hwnd, BOOL fAll );
 
@@ -147,12 +153,13 @@ static MRESULT EXPENTRY windowProc( HWND, ULONG, MPARAM, MPARAM );
 
 INT main( VOID )
 {
-    HAB     hab;
-    HMQ     hmq;
-    ULONG   flFrameFlags;
-    HWND    hwndFrame;
-    HWND    hwndClient;
-    QMSG    qm;
+    HAB      hab;
+    HMQ      hmq;
+    ULONG    flFrameFlags;
+    HWND     hwndFrame;
+    HWND     hwndClient;
+    QMSG     qm;
+    HATOMTBL hSATbl;        // handle to system atom table
 
     int     result = 0;
 
@@ -214,10 +221,17 @@ INT main( VOID )
 
     initFrame( hwndFrame );
 
+    // Register the Unicode clipboard format
+    hSATbl      = WinQuerySystemAtomTable();
+    m_cfUnicode = WinAddAtom( hSATbl, "text/unicode");
+
     while( WinGetMsg( hab, &qm, NULLHANDLE, 0, 0 ))
         WinDispatchMsg( hab, &qm );
 
     donePipeThreadForVioSub();
+
+    // Deregister the Unicode clipboard format
+    WinDeleteAtom( hSATbl, m_cfUnicode );
 
     WinDestroyWindow( hwndFrame );
 
@@ -762,15 +776,8 @@ VOID invertRect( HPS hps, PPOINTS pptsStart, PPOINTS pptsEnd, PPOINTS pptsEndNew
         WinInvertRect( hps, &rcl );
 }
 
-VOID copyFromClipbrd( HWND hwnd )
+VOID insertCBText( HWND hwnd, PSZ pszCBText )
 {
-    HAB hab = WinQueryAnchorBlock( hwnd );
-    PSZ pszCBText;
-
-    if( WinOpenClipbrd( hab ))
-    {
-        if(( pszCBText = ( PSZ )WinQueryClipbrdData( hab, CF_TEXT )) != 0 )
-        {
             USHORT  fsFlags;
             UCHAR   uchRepeat;
             UCHAR   uchScan;
@@ -803,6 +810,56 @@ VOID copyFromClipbrd( HWND hwnd )
                             MPFROMSH2CH( fsFlags, uchRepeat, uchScan ),
                             MPFROM2SHORT( usCh, usVk ));
             }
+}
+
+
+VOID copyFromClipbrd( HWND hwnd )
+{
+    HAB hab = WinQueryAnchorBlock( hwnd );
+    PSZ pszCBText;
+
+    UconvObject uconv;                      // conversion object
+    UniChar     suCodepage[ MAX_CP_SPEC ],  // conversion specifier
+                *psuCBText;                 // pointer into psuClipText
+    ULONG       ulBufLen;
+    APIRET      rc;
+
+    if( WinOpenClipbrd( hab ))
+    {
+
+// Paste as Unicode text if available...
+        if (( psuCBText = (UniChar *) WinQueryClipbrdData( hab, m_cfUnicode )) != NULL )
+        {
+            // Create the conversion object
+            UniMapCpToUcsCp( m_fat.usCodePage, suCodepage, MAX_CP_NAME );
+            UniStrcat( suCodepage, (UniChar *) L"@map=cdra,path=no");
+
+            if (( rc = UniCreateUconvObject( suCodepage, &uconv )) == ULS_SUCCESS )
+            {
+                // Convert to the current codepage
+                ulBufLen = ( UniStrlen(psuCBText) * 4 ) + 1;
+                pszCBText = (PSZ) calloc( ulBufLen, sizeof(CHAR) );
+                if (( rc = UniStrFromUcs( uconv, pszCBText, psuCBText, ulBufLen )) == ULS_SUCCESS )
+                {
+                    // Output the converted text
+                    insertCBText( hwnd, pszCBText );
+                }
+#if DEBUG
+                else dprintf("Failed to convert Unicode clipboard text: UniStrFromUcs() = %08X\n", rc );
+#endif
+                UniFreeUconvObject( uconv );
+                free( pszCBText );
+
+            }
+#if DEBUG
+            else dprintf("Failed to convert Unicode clipboard text: UniCreateUconvObject() = %08X\n", rc );
+#endif
+        }
+// Done pasting Unicode
+
+        else if(( pszCBText = ( PSZ )WinQueryClipbrdData( hab, CF_TEXT )) != 0 )
+        {
+            insertCBText( hwnd, pszCBText );
         }
 
         WinCloseClipbrd( hab );
@@ -823,6 +880,21 @@ VOID copyToClipbrd( HWND hwnd, BOOL fAll )
         int     xStart1;
         PUSHORT pVioBufShell;
         PCH     pchBase, pch;
+
+        UconvObject uconv;                      // UCS-2 conversion object
+        UniChar     suCodepage[ MAX_CP_SPEC ],  // conversion specifier
+                    *psuCopyText,               // Unicode text to be copied
+                    *psuShareMem,               // Unicode text in clipboard
+                    *psuOffset;                 // pointer into psuCopyText
+        PSZ         pszCopyText,                // plain text to be converted
+                    pszOffset;                  // pointer into pszCopyText
+        ULONG       ulBufLen;                   // length of copied string
+        APIRET      rc;
+        size_t      stIn,
+                    stOut,
+                    stSub;
+
+        WinEmptyClipbrd( hab );
 
         if( fAll )
         {
@@ -902,7 +974,59 @@ VOID copyToClipbrd( HWND hwnd, BOOL fAll )
 
         *pch = '\0';
 
+        WinEmptyClipbrd( hab );
+
+        ulBufLen = strlen( pchBase ) + 1;
+        pszCopyText = (PSZ) calloc( ulBufLen, sizeof(CHAR) );
+        strncpy( pszCopyText, pchBase, ulBufLen - 1 );
+
         WinSetClipbrdData( hab, ( ULONG )pchBase, CF_TEXT, CFI_POINTER );
+
+// Now copy as "text/unicode" (UCS-2)
+        if ( pszCopyText )
+        {
+            UniMapCpToUcsCp( m_fat.usCodePage, suCodepage, MAX_CP_NAME );
+            UniStrcat( suCodepage, (UniChar *) L"@map=cdra,path=no");
+            if (( rc = UniCreateUconvObject( suCodepage, &uconv )) == ULS_SUCCESS )
+            {
+                // Convert string to Unicode
+                if (( psuCopyText = (UniChar *) calloc( ulBufLen, sizeof(UniChar) )) != NULL ) {
+                    pszOffset = pszCopyText;
+                    psuOffset = psuCopyText;
+                    stIn  = ulBufLen - 1;
+                    stOut = ulBufLen - 1;
+                    stSub = 0;
+                    if (( rc = UniUconvToUcs( uconv, (PPVOID) &pszOffset, &stIn, &psuOffset, &stOut, &stSub )) == ULS_SUCCESS )
+                    {
+                        // (CP850 erroneously maps U+0131 to the euro sign)
+                        if ( m_fat.usCodePage == 850 )
+                            while (( psuOffset = UniStrchr( psuCopyText, 0x0131 )) != NULL ) *psuOffset = 0xFFFD;
+
+                        // Place the UCS-2 string on the clipboard as "text/unicode"
+                        rc = DosAllocSharedMem( (PVOID) &psuShareMem, NULL, ulBufLen,
+                                                PAG_WRITE | PAG_COMMIT | OBJ_GIVEABLE );
+                        if ( rc == 0 ) {
+                            UniStrncpy( psuShareMem, psuCopyText, ulBufLen - 1 );
+                            if ( !WinSetClipbrdData( hab, (ULONG) psuShareMem, m_cfUnicode, CFI_POINTER )) {
+#ifdef DEBUG
+                                dprintf("[copyToClipbrd] Failed to copy Unicode text: error %08X from WinSetClipbrdData().\n",  WinGetLastError(hab) );
+#endif
+                            }
+                        }
+                    }
+#ifdef DEBUG
+                    else dprintf("[copyToClipbrd] Failed to convert text: UniStrToUcs() = %08X.\n", rc );
+#endif
+                    free( psuCopyText );
+                }
+                UniFreeUconvObject( uconv );
+            }
+#if DEBUG
+            else dprintf("[copyToClipbrd] Failed to created conversion object %ls: UniCreateUconvObject() = %08X.\n", suCodepage, rc );
+#endif
+            free ( pszCopyText );
+        }
+// Done copying UCS-2
 
         WinCloseClipbrd( hab );
     }
