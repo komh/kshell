@@ -379,8 +379,6 @@ void pipeThread( void *arg )
 
         DosDisConnectNPipe( m_hpipe );
     } while( !m_fQuit );
-
-    _endthread();
 }
 
 void getCurInfo( void )
