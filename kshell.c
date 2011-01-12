@@ -215,11 +215,14 @@ static VOID convertVio2Win( PRECTL prcl )
 
 static int findXCol( int x )
 {
-    int left = 0;
-    int right = m_vmi.col;
+    int min_key = 0;
+    int max_key = m_vmi.col;
+    int left = min_key;
+    int right = max_key;
     int key = ( left + right ) / 2;
 
-    while(( x < m_aptlPos[ key ].x ) || ( x >= m_aptlPos[ key + 1 ].x ))
+    while(( key > min_key && x < m_aptlPos[ key ].x ) ||
+          ( key < max_key && x >= m_aptlPos[ key + 1 ].x ))
     {
         if( x < m_aptlPos[ key ].x )
             right = key - 1;
