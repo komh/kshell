@@ -247,7 +247,6 @@ void init( PSZ pszPid )
 
     m_tid_kbdmon = _beginthread( kbdmonThread, NULL, 32768, NULL );
 
-    DosSetPriority( PRTYS_THREAD, PRTYC_TIMECRITICAL, 0, m_tid_kbdmon );
 
     strcpy( m_szPipeName, PIPE_VIODMN_BASE );
     strcat( m_szPipeName, pszPid );
@@ -315,6 +314,8 @@ void kbdmonThread( void *arg )
 {
     KEYPACKET   keyPacket;
     USHORT      usLen;
+
+    DosSetPriority( PRTYS_THREAD, PRTYC_TIMECRITICAL, +31, 0 );
 
     while( !m_fQuit )
     {
