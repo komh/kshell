@@ -6,7 +6,6 @@
 #define INCL_GPI
 #include <os2.h>
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>

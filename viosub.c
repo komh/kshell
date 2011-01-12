@@ -3,7 +3,6 @@
 #define INCL_VIO
 #include <os2.h>
 
-#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
