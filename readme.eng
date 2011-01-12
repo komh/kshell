@@ -1,4 +1,4 @@
-                             KShell v0.4.0
+                             KShell v0.5.0
                             ---------------
                             
 1. Introduction
@@ -68,24 +68,40 @@ eComStation v1.2MR.
 
   - Only support keyboard input and VIO output. So mouse is not supported.
 
-  - Ctrl-Break, Ctrl-C, Ctrl-S, Ctrl-P, and so on are not supported.
+  - Ctrl-S, Ctrl-P, and so on are not supported.
+  
+  - With Q.EXE, Shift-Arrow Keys does not work.
   
 9. TODOs...
 -----------
 
   - Support mouse
   
-  - Support special key combination such as Ctrl-C.
+  - Support special key combination such as Ctrl-P.
   
 10. History
 ---------------
 
+  - v0.5.0 ( 2007/03/14 )
+    .Support Ctrl-C and Ctrl-Break key combination.
+    .Support KSHELL_COMSPEC env. var.
+    .donePipeThreadForVioSub() call _endthread() incorrectly. Fixed.
+    .On file list screen of HV.EXE with v0.4.0, blank rectangle is displayed. 
+     Fixed.
+    .KShell doesn't respond to user input when scrolling heavily such as 'dir 
+     x:\/s'. Fixed.
+    .KShell doesn't respond to user input if obscured fully due to the thing 
+     like full-screen switching when scrolling. Fixed.
+    .'Marking' mode does not work correctly with 'Scroll-back' mode. Fixed.
+    .XCOPY.EXE does not work with v0.4.0. Fixed. (v0.4.0 is debug build. Debug 
+     build has a problem, but not release build. Maybe compiler bug ?)
+    
   - v0.4.0 ( 2007/02/26 )
     .'Courier New' font do not displayed correctly. Fixed.
     .When 'Marking Mode', if any window cross over the marking area, that 
      area is not displayed correctly. Fixed.
     .Changing compiler to OpenWatcom v1.6 since v0.3.0 cause vioGetBuf() 
-     broken.
+     broken. Fixed.
     .With font association, a 'stair problem' occur. Fixed.
     .Changing scroll function cause scroll contents leak out of scroll 
      rectangle. Fixed.
@@ -97,7 +113,7 @@ eComStation v1.2MR.
     .Compiler changed to Open Watcom v1.6
     
   - v0.2.0 ( 2005/08/16 )
-    .Performance is improved greately.
+    .Improved performance greately.
     .Sometimes, a part of background is not erased. Fixed.
     .When scrolling, other window cover KShell window, that part of KShell
      window is not scrolled correctly. Fixed( using WinScrollWindow() instead 
@@ -133,8 +149,8 @@ eComStation v1.2MR.
                VIO.
 
   viodmn.exe : VIO full-screen program that launch a command shell specified 
-               by 'COMSPEC', pass VIO buffer to kshell.exe, and translate key 
-               on PM to key on VIO. 
+               by 'KSHELL_COMSPEC', 'COMSPEC' and 'CMD.EXE', and interconnect 
+               VIO and PM. 
 
                !!! viodmn.exe should be started by kshell.exe !!!
 
