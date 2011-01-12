@@ -195,7 +195,7 @@ INT main( VOID )
     );
 
     flFrameFlags = FCF_SYSMENU | FCF_TITLEBAR | FCF_TASKLIST | FCF_DLGBORDER |
-                   FCF_VERTSCROLL;
+                   FCF_VERTSCROLL | FCF_ICON;
 
     hwndFrame = WinCreateStdWindow(
                 HWND_DESKTOP,               // parent window handle

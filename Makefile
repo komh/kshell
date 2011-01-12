@@ -52,7 +52,7 @@ viodmn.exe : viodmn.obj
 test.exe : test.obj
 	$(LINK) $(LFLAGS) system os2v2 name $@ file { $< }
 
-kshell.res : kshell.rc kshell.h cpdlg.h cpdlg.dlg
+kshell.res : kshell.rc kshell.h kshell.ico cpdlg.h cpdlg.dlg
 
 VIOSUB_OBJS = viosub.obj vioroute.obj
 
@@ -83,7 +83,7 @@ bin : .SYMBOLIC kshell.exe viodmn.exe viosub.dll test.exe readme.txt readme.eng
 	-$(DEL) kshell$(VER).zip
 	$(ZIP) kshell$(VER) $<
 
-src : .SYMBOLIC kshell.c kshell.h kshell.rc ft2lib.c ft2lib.h &
+src : .SYMBOLIC kshell.c kshell.h kshell.rc kshell.ico ft2lib.c ft2lib.h &
 	  viodmn.c viodmn.h viosub.c viosub.h vioroute.asm viosub.lnk &
 	  dosqss.h test.c cpdlg.dlg cpdlg.h &
 	  makefile
