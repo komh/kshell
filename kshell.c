@@ -1298,8 +1298,8 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
         case WM_BUTTON2CLICK :
         {
             POINTS  pts;
-            ULONG   fs = PU_NONE | PU_KEYBOARD | PU_MOUSEBUTTON1;
-
+            ULONG   fs = PU_NONE | PU_KEYBOARD | PU_MOUSEBUTTON1 |
+                         PU_HCONSTRAIN | PU_VCONSTRAIN;
 
             WinEnableMenuItem( pKShellData->hwndPopup, IDM_COPY,
                                pKShellData->ulKShellMode == KSM_MARKING );
