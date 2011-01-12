@@ -503,7 +503,10 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
                     x++;
                 }
 
-                *pch++ = LOUCHAR( *pVioBufShell++ );
+                *pch = LOUCHAR( *pVioBufShell++ );
+                if( *pch == 0 )
+                    *pch = 0x20;
+                pch++;
             }
 
             if( pch != pchBase )
