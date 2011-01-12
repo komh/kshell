@@ -333,8 +333,6 @@ void kbdmonThread( void *arg )
         if( DosMonRead(( PBYTE )&m_monIn, MON_WAIT, ( PBYTE )&keyPacket, &usLen ) == 0 )
             DosMonWrite(( PBYTE )&m_monOut, ( PBYTE )&keyPacket, usLen );
     }
-
-    _endthread();
 }
 
 void pipeThread( void *arg )
