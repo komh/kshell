@@ -18,7 +18,6 @@ CODE16          SEGMENT WORD PUBLIC USE16 'CODE'
 VioRouter:
         push    ds
         push    es
-
         jmp far ptr FLAT:Entry32bit
 
         ALIGN   2
@@ -81,6 +80,7 @@ DATA32      SEGMENT DWORD PUBLIC USE32 'DATA'
 _SkipFlag       DD  0
 STACK16         DD  ?
 TMP_STACK   DB  STACK_SIZE DUP (0)
+
 DATA32      ENDS
 
 
