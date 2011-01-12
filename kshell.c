@@ -926,7 +926,6 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
         }
 
         case WM_CLOSE :
-            callVioDmn( MSG_QUIT );
             WinPostMsg( hwnd, WM_QUIT, 0, 0 );
 
             return 0;
@@ -2355,7 +2354,6 @@ static VOID pipeThread( void *arg )
         DosDisConnectNPipe( m_hpipeVioSub );
     } while( usIndex != ( USHORT )-1 );
 
-    callVioDmn( MSG_QUIT );
     WinPostMsg( hwnd, WM_QUIT, 0, 0 );
 }
 
@@ -2379,7 +2377,11 @@ VOID initPipeThreadForVioSub( HWND hwnd )
 
 VOID donePipeThreadForVioSub( VOID )
 {
+    callVioDmn( MSG_QUIT );
+
     while( DosWaitThread( &m_tidPipeThread, DCWW_WAIT ) == ERROR_INTERRUPT );
 
     DosClose( m_hpipeVioSub );
 }
+
+
