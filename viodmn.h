@@ -1,6 +1,8 @@
 #ifndef __VIODMN_H_
 #define __VIODMN_H_
 
+#include <os2.h>
+
 #define VIODMN_MAGIC    "VioDmn_should_be_run_by_KShell_!!!"
 
 #define MSG_PIPE_SIZE   4   /* ULONG */
@@ -19,6 +21,8 @@
 
 #define SEM_VIODMN_KSHELL_LEN   64
 #define SEM_VIODMN_KSHELL_BASE  "\\SEM32\\VIODMN\\KSHELL\\"
+
+APIRET16 _Far16 _Pascal DosSMPause( USHORT );
 
 #endif
 

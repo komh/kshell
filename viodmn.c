@@ -192,6 +192,8 @@ static TID       m_tid_kbdmon;
 static TID      m_tid_packet;
 static HQUEUE   m_hqPacket;
 
+static BOOL m_fPaused = FALSE;
+
 static void init( PSZ pszPid );
 static void done( void );
 static void initSGID( void );
@@ -843,6 +845,21 @@ void makeKeyEvent( void )
 
     if( FKC_KEYUP( fsFlags ))
         keyPacket.ddFlag |= DDF_KEYBREAK;
+    else if( m_fPaused )
+    {
+        // Shift keys and Pause key do not wake up session
+        if(( keyPacket.cp.fbStatus & ST_SHIFT_WITHOUT_CHAR ) ||
+           ( CAS_NONE( fsFlags ) && ( usVk == VK_PAUSE )))
+            return;
+
+        DosSMPause( m_ulSGID );
+
+        m_fPaused = FALSE;
+
+        // not CTRL-C(0x2E) and CTRL-BREAK(0x5F) ?
+        if( !CAS_CTRL( fsFlags ) || (( uchScan != 0x2E ) && ( uchScan != 0x5F)))
+            return;
+    }
 
     if( CAS_ALT( fsFlags ))
     {
@@ -909,13 +926,20 @@ void makeKeyEvent( void )
                ( keyPacket.cp.chScan != 0x37 )))) // PAD Asterisk
             keyPacket.cp.fbStatus |= ST_EXTENDED_KEY;
 
-#if 0
         if( keyPacket.cp.chScan == 0x45 ) // PAUSE key
         {
+            if( !FKC_KEYUP( fsFlags ))
+            {
+                DosSMPause( m_ulSGID );
+
+                m_fPaused = TRUE;
+
+                return;
+            }
+
             keyPacket.ddFlag |= FKC_KEYUP( fsFlags ) ? DDF_UNDEFKEY : DDF_PAUSEKEY;
             keyPacket.cp.fbStatus &= ~ST_EXTENDED_KEY;
         }
-#endif
     }
 
 #if 0
