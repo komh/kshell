@@ -93,6 +93,18 @@ static VOID pipeClose( HPIPE hpipe )
     DosClose( hpipe );
 }
 
+#define CALL_VIO( viofn, ... ) \
+{ \
+    ULONG rc; \
+\
+    SkipFlag = TRUE; \
+    rc = viofn( __VA_ARGS__ ); \
+    SkipFlag = FALSE; \
+\
+    if( rc ) \
+        return rc;\
+}
+
 #pragma pack( 2 )
 typedef struct tagVIOGETBUFPARAM
 {
@@ -106,14 +118,12 @@ static ULONG vioGetBuf( USHORT usIndex, PVOID pargs )
 {
     PVIOGETBUFPARAM p = pargs;
 
-    SkipFlag = TRUE;
-    VioGetBuf( p->pulLVBPtr, p->pusLen, 0 );
-    SkipFlag = FALSE;
+    CALL_VIO( VioGetBuf, p->pulLVBPtr, p->pusLen, p->hvio );
 
     m_LVBPtr = ( PCH )*( PVOID16 * )p->pulLVBPtr;
     m_LVBLen = *p->pusLen;
 
-    return ( ULONG )0;
+    return 0;
 }
 
 #pragma pack( 2 )
@@ -131,6 +141,8 @@ static ULONG vioShowBuf( USHORT usIndex, PVOID pargs )
 
     HPIPE   hpipe;
     ULONG   cbActual;
+
+    CALL_VIO( VioShowBuf, p->usOfs, p->usLen, p->hvio );
 
     if( m_LVBPtr )
     {
@@ -153,7 +165,7 @@ static ULONG vioShowBuf( USHORT usIndex, PVOID pargs )
         pipeClose( hpipe );
     }
 
-    return ( ULONG )-1;
+    return 0;
 }
 
 #pragma pack( 2 )
@@ -172,6 +184,8 @@ static ULONG vioSetCurPos( USHORT usIndex, PVOID pargs )
     HPIPE   hpipe;
     ULONG   cbActual;
 
+    CALL_VIO( VioSetCurPos, p->usRow, p->usCol, p->hvio );
+
     pipeOpen( &hpipe );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
@@ -180,7 +194,7 @@ static ULONG vioSetCurPos( USHORT usIndex, PVOID pargs )
 
     pipeClose( hpipe );
 
-    return ( ULONG )-1;
+    return 0;
 }
 
 #pragma pack( 2 )
@@ -198,6 +212,8 @@ static ULONG vioSetCurType( USHORT usIndex, PVOID pargs )
     HPIPE   hpipe;
     ULONG   cbActual;
 
+    CALL_VIO( VioSetCurType, p->pvci, p->hvio );
+
     pipeOpen( &hpipe );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
@@ -205,7 +221,7 @@ static ULONG vioSetCurType( USHORT usIndex, PVOID pargs )
 
     pipeClose( hpipe );
 
-    return ( ULONG )-1;
+    return 0;
 }
 
 #pragma pack( 2 )
@@ -226,6 +242,8 @@ static ULONG vioWrtNChar( USHORT usIndex, PVOID pargs )
     HPIPE   hpipe;
     ULONG   cbActual;
 
+    CALL_VIO( VioWrtNChar, p->pch, p->usTimes, p->usRow, p->usCol, p->hvio );
+
     pipeOpen( &hpipe );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
@@ -236,7 +254,7 @@ static ULONG vioWrtNChar( USHORT usIndex, PVOID pargs )
 
     pipeClose( hpipe );
 
-    return ( ULONG )-1;
+    return 0;
 }
 
 #pragma pack( 2 )
@@ -257,6 +275,8 @@ static ULONG vioWrtNAttr( USHORT usIndex, PVOID pargs )
     HPIPE   hpipe;
     ULONG   cbActual;
 
+    CALL_VIO( VioWrtNAttr, p->pbAttr, p->usTimes, p->usRow, p->usCol, p->hvio );
+
     pipeOpen( &hpipe );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
@@ -267,7 +287,7 @@ static ULONG vioWrtNAttr( USHORT usIndex, PVOID pargs )
 
     pipeClose( hpipe );
 
-    return ( ULONG )-1;
+    return 0;
 }
 
 #pragma pack( 2 )
@@ -288,6 +308,8 @@ static ULONG vioWrtNCell( USHORT usIndex, PVOID pargs )
     HPIPE   hpipe;
     ULONG   cbActual;
 
+    CALL_VIO( VioWrtNCell, p->pbCell, p->usTimes, p->usRow, p->usCol, p->hvio );
+
     pipeOpen( &hpipe );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
@@ -298,7 +320,7 @@ static ULONG vioWrtNCell( USHORT usIndex, PVOID pargs )
 
     pipeClose( hpipe );
 
-    return ( ULONG )-1;
+    return 0;
 }
 
 #pragma pack( 2 )
@@ -319,6 +341,8 @@ static ULONG vioWrtCharStr( USHORT usIndex, PVOID pargs )
     HPIPE   hpipe;
     ULONG   cbActual;
 
+    CALL_VIO( VioWrtCharStr, p->pchCharStr, p->usLen, p->usRow, p->usCol, p->hvio );
+
     pipeOpen( &hpipe );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
@@ -329,7 +353,7 @@ static ULONG vioWrtCharStr( USHORT usIndex, PVOID pargs )
 
     pipeClose( hpipe );
 
-    return ( ULONG )-1;
+    return 0;
 }
 
 #pragma pack( 2 )
@@ -351,6 +375,8 @@ static ULONG vioWrtCharStrAtt( USHORT usIndex, PVOID pargs )
     HPIPE   hpipe;
     ULONG   cbActual;
 
+    CALL_VIO( VioWrtCharStrAtt, p->pchCharStr, p->usLen, p->usRow, p->usCol, p->pbAttr, p->hvio );
+
     pipeOpen( &hpipe );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
@@ -362,7 +388,7 @@ static ULONG vioWrtCharStrAtt( USHORT usIndex, PVOID pargs )
 
     pipeClose( hpipe );
 
-    return ( ULONG )-1;
+    return 0;
 }
 
 #pragma pack( 2 )
@@ -383,6 +409,8 @@ static ULONG vioWrtCellStr( USHORT usIndex, PVOID pargs )
     HPIPE   hpipe;
     ULONG   cbActual;
 
+    CALL_VIO( VioWrtCellStr, p->pchCellStr, p->usLen, p->usRow, p->usCol, p->hvio );
+
     pipeOpen( &hpipe );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
@@ -393,7 +421,7 @@ static ULONG vioWrtCellStr( USHORT usIndex, PVOID pargs )
 
     pipeClose( hpipe );
 
-    return ( ULONG )-1;
+    return 0;
 }
 
 #pragma pack( 2 )
@@ -416,6 +444,8 @@ static ULONG vioScrollUp( USHORT usIndex, PVOID pargs )
     HPIPE   hpipe;
     ULONG   cbActual;
 
+    CALL_VIO( VioScrollUp, p->usTopRow, p->usLeftCol, p->usBotRow, p->usRightCol, p->usLines, p->pbCell, p->hvio );
+
     pipeOpen( &hpipe );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
@@ -428,7 +458,7 @@ static ULONG vioScrollUp( USHORT usIndex, PVOID pargs )
 
     pipeClose( hpipe );
 
-    return ( ULONG )-1;
+    return 0;
 }
 
 #pragma pack( 2 )
@@ -451,6 +481,8 @@ static ULONG vioScrollDn( USHORT usIndex, PVOID pargs )
     HPIPE   hpipe;
     ULONG   cbActual;
 
+    CALL_VIO( VioScrollDn, p->usTopRow, p->usLeftCol, p->usBotRow, p->usRightCol, p->usLines, p->pbCell, p->hvio );
+
     pipeOpen( &hpipe );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
@@ -463,7 +495,7 @@ static ULONG vioScrollDn( USHORT usIndex, PVOID pargs )
 
     pipeClose( hpipe );
 
-    return ( ULONG )-1;
+    return 0;
 }
 
 #pragma pack( 2 )
@@ -486,6 +518,8 @@ static ULONG vioScrollLf( USHORT usIndex, PVOID pargs )
     HPIPE   hpipe;
     ULONG   cbActual;
 
+    CALL_VIO( VioScrollLf, p->usTopRow, p->usLeftCol, p->usBotRow, p->usRightCol, p->usLines, p->pbCell, p->hvio );
+
     pipeOpen( &hpipe );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
@@ -498,7 +532,7 @@ static ULONG vioScrollLf( USHORT usIndex, PVOID pargs )
 
     pipeClose( hpipe );
 
-    return ( ULONG )-1;
+    return 0;
 }
 
 #pragma pack( 2 )
@@ -521,6 +555,8 @@ static ULONG vioScrollRt( USHORT usIndex, PVOID pargs )
     HPIPE   hpipe;
     ULONG   cbActual;
 
+    CALL_VIO( VioScrollRt, p->usTopRow, p->usLeftCol, p->usBotRow, p->usRightCol, p->usLines, p->pbCell, p->hvio );
+
     pipeOpen( &hpipe );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
@@ -533,7 +569,7 @@ static ULONG vioScrollRt( USHORT usIndex, PVOID pargs )
 
     pipeClose( hpipe );
 
-    return ( ULONG )-1;
+    return 0;
 }
 
 
