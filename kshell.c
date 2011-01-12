@@ -814,8 +814,8 @@ VOID copyToClipbrd( HWND hwnd, BOOL fAll )
         }
 
         DosAllocSharedMem(( PPVOID )&pchBase, NULL,
-                           (( xEnd - xStart + 1 ) + 2 ) * ( yEnd - yStart + 1 ) + 1, // 2 for '\r' and '\n', 1 for null
-                           PAG_COMMIT | PAG_READ | PAG_WRITE | OBJ_GIVEABLE );
+                          (( xEnd - xStart + 1 ) + 2 ) * ( yEnd - yStart + 1 ) + 1, // 2 for '\r' and '\n', 1 for null
+                          fALLOCSHR );
 
         pch = pchBase;
 
