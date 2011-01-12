@@ -1120,7 +1120,10 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                     {
                         CHAR    szNum[ 10 ];
 
+
                         memcpy( &m_fat, &fd.fAttrs, sizeof( FATTRS ));
+                        m_fat.usCodePage = PrfQueryProfileInt( HINI_USERPROFILE, PRF_APP, PRF_KEY_CP, DEFAULT_CODEPAGE );
+
                         m_fxPointSize = fd.fxPointSize;
 
                         PrfWriteProfileString( HINI_USERPROFILE, PRF_APP, PRF_KEY_FONT, m_fat.szFacename );
