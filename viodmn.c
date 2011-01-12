@@ -878,6 +878,15 @@ void makeKeyEvent( void )
 #endif
     }
 
+#if 0
+    // ASCII code of extended keys set to 0x00.
+    // Because if monitor is at first, extended keys its ascii code is 0xe0,
+    // make additional key stroke, where chChar = 0x00, chScan = 0x00, in monitor
+    // chains.
+    if(( keyPacket.cp.fbStatus & ST_EXTENDED_KEY ) && ( keyPacket.cp.chChar == 0xE0 ))
+        keyPacket.cp.chChar = 0x00;
+#endif
+
     DosQuerySysInfo( QSV_MS_COUNT, QSV_MS_COUNT, &keyPacket.cp.time, sizeof( ULONG ));
 
     DosMonWrite(( PBYTE )&m_monOut, ( PBYTE )&keyPacket, sizeof( KEYPACKET ));
