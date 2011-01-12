@@ -205,9 +205,13 @@ int main( int argc, char *argv[] )
 
     if( VioRegister( "VIOSUB", "VioRouter", VR_MASK1, VR_MASK2 ) == 0 )
     {
-        pszComspec = getenv( "COMSPEC" );
+        pszComspec = getenv( "KSHELL_COMSPEC" );
         if( pszComspec == NULL )
-            pszComspec = "CMD.EXE";
+        {
+            pszComspec = getenv( "COMSPEC" );
+            if( pszComspec == NULL )
+                pszComspec = "CMD.EXE";
+        }
 
         m_pid_comspec = spawnlp( P_NOWAIT, pszComspec, pszComspec, NULL );
         cwait( NULL, m_pid_comspec, WAIT_CHILD );
