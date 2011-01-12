@@ -1596,13 +1596,25 @@ BOOL    callVioDmn( USHORT usMsg )
     USHORT  usAck;
     ULONG   cbActual;
 
+    ULONG   rc;
+
     if( fQuit )
         return TRUE;
 
-    while( DosCallNPipe( m_szPipeName,
-                      &usMsg, sizeof( usMsg ),
-                      &usAck, sizeof( usAck ), &cbActual,
-                      10000L ) == ERROR_INTERRUPT );
+    do
+    {
+        rc = DosCallNPipe( m_szPipeName,
+                           &usMsg, sizeof( usMsg ),
+                           &usAck, sizeof( usAck ), &cbActual,
+                           10000L );
+
+        if( rc == ERROR_PIPE_BUSY )
+            while( DosWaitNPipe( m_szPipeName, -1 ) == ERROR_INTERRUPT );
+
+        if( rc )
+            DosSleep( 1 );
+
+    } while( rc );
 
     if( usAck == MSG_QUIT )
         fQuit = TRUE;
