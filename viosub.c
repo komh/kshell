@@ -67,6 +67,19 @@ static VOID pipeOpen( HPIPE *phpipe )
     } while( rc );
 }
 
+static VOID pipeClose( HPIPE hpipe )
+{
+#if 0
+    USHORT usIndex;
+    ULONG  cbActual;
+
+    // wait acknowledgement
+    DosRead( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+#endif
+
+    DosClose( hpipe );
+}
+
 #pragma pack( 2 )
 typedef struct tagVIOGETBUFPARAM
 {
@@ -124,7 +137,7 @@ static ULONG vioShowBuf( USHORT usIndex, PVOID pargs )
         DosWrite( hpipe, &usLen, sizeof( USHORT ), &cbActual );
         DosWrite( hpipe, m_LVBPtr + usStart, usLen, &cbActual );
 
-        DosClose( hpipe );
+        pipeClose( hpipe );
     }
 
     return ( ULONG )-1;
@@ -152,7 +165,7 @@ static ULONG vioSetCurPos( USHORT usIndex, PVOID pargs )
     DosWrite( hpipe, &p->usCol, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, &p->usRow, sizeof( USHORT ), &cbActual );
 
-    DosClose( hpipe );
+    pipeClose( hpipe );
 
     return ( ULONG )-1;
 }
@@ -177,7 +190,7 @@ static ULONG vioSetCurType( USHORT usIndex, PVOID pargs )
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, p->pvci, sizeof( VIOCURSORINFO ), &cbActual );
 
-    DosClose( hpipe );
+    pipeClose( hpipe );
 
     return ( ULONG )-1;
 }
@@ -208,7 +221,7 @@ static ULONG vioWrtNChar( USHORT usIndex, PVOID pargs )
     DosWrite( hpipe, &p->usTimes, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, p->pch, sizeof( CHAR ), &cbActual );
 
-    DosClose( hpipe );
+    pipeClose( hpipe );
 
     return ( ULONG )-1;
 }
@@ -239,7 +252,7 @@ static ULONG vioWrtNAttr( USHORT usIndex, PVOID pargs )
     DosWrite( hpipe, &p->usTimes, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, p->pbAttr, sizeof( BYTE ), &cbActual );
 
-    DosClose( hpipe );
+    pipeClose( hpipe );
 
     return ( ULONG )-1;
 }
@@ -270,7 +283,7 @@ static ULONG vioWrtNCell( USHORT usIndex, PVOID pargs )
     DosWrite( hpipe, &p->usTimes, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, p->pbCell, sizeof( BYTE ) * VIO_CELLSIZE, &cbActual );
 
-    DosClose( hpipe );
+    pipeClose( hpipe );
 
     return ( ULONG )-1;
 }
@@ -301,7 +314,7 @@ static ULONG vioWrtCharStr( USHORT usIndex, PVOID pargs )
     DosWrite( hpipe, &p->usLen, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, p->pchCharStr, p->usLen, &cbActual );
 
-    DosClose( hpipe );
+    pipeClose( hpipe );
 
     return ( ULONG )-1;
 }
@@ -334,7 +347,7 @@ static ULONG vioWrtCharStrAtt( USHORT usIndex, PVOID pargs )
     DosWrite( hpipe, &p->usLen, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, p->pchCharStr, p->usLen, &cbActual );
 
-    DosClose( hpipe );
+    pipeClose( hpipe );
 
     return ( ULONG )-1;
 }
@@ -365,7 +378,7 @@ static ULONG vioWrtCellStr( USHORT usIndex, PVOID pargs )
     DosWrite( hpipe, &p->usLen, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, p->pchCellStr, p->usLen * sizeof( BYTE ) * VIO_CELLSIZE, &cbActual );
 
-    DosClose( hpipe );
+    pipeClose( hpipe );
 
     return ( ULONG )-1;
 }
@@ -400,7 +413,7 @@ static ULONG vioScrollUp( USHORT usIndex, PVOID pargs )
     DosWrite( hpipe, &p->usLeftCol, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, &p->usTopRow, sizeof( USHORT ), &cbActual );
 
-    DosClose( hpipe );
+    pipeClose( hpipe );
 
     return ( ULONG )-1;
 }
@@ -435,7 +448,7 @@ static ULONG vioScrollDn( USHORT usIndex, PVOID pargs )
     DosWrite( hpipe, &p->usLeftCol, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, &p->usTopRow, sizeof( USHORT ), &cbActual );
 
-    DosClose( hpipe );
+    pipeClose( hpipe );
 
     return ( ULONG )-1;
 }
@@ -470,7 +483,7 @@ static ULONG vioScrollLf( USHORT usIndex, PVOID pargs )
     DosWrite( hpipe, &p->usLeftCol, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, &p->usTopRow, sizeof( USHORT ), &cbActual );
 
-    DosClose( hpipe );
+    pipeClose( hpipe );
 
     return ( ULONG )-1;
 }
@@ -505,7 +518,7 @@ static ULONG vioScrollRt( USHORT usIndex, PVOID pargs )
     DosWrite( hpipe, &p->usLeftCol, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, &p->usTopRow, sizeof( USHORT ), &cbActual );
 
-    DosClose( hpipe );
+    pipeClose( hpipe );
 
     return ( ULONG )-1;
 }
