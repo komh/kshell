@@ -66,6 +66,7 @@ kshell.obj : kshell.c kshell.h cpdlg.h viodmn.h viosub.h
 viodmn.obj : viodmn.c kshell.h cpdlg.h viodmn.h
 
 viosub.obj : viosub.c dosqss.h viosub.h kshell.h cpdlg.h
+    $(CC) $(CFLAGS) -s -fo=$@ $[@
 
 vioroute.obj : vioroute.asm
 
