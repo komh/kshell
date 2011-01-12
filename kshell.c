@@ -1420,8 +1420,7 @@ BOOL init( VOID )
     strcpy( szMem, MEM_KSHELL_VIOBUF_BASE );
     strcat( szMem, m_szPid );
 
-    DosAllocSharedMem(( PPVOID )&m_pVioBuf, szMem, KSHELL_BUFSIZE,
-                      PAG_READ | PAG_WRITE | PAG_COMMIT );
+    DosAllocSharedMem(( PPVOID )&m_pVioBuf, szMem, KSHELL_BUFSIZE, fALLOC );
 
     strcpy( m_szPipeName, PIPE_VIODMN_BASE );
     strcat( m_szPipeName, m_szPid );
