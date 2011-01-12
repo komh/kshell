@@ -1,4 +1,4 @@
-                             KShell v0.5.0
+                             KShell v0.6.0
                             ---------------
                             
 1. Introduction
@@ -81,6 +81,15 @@ eComStation v1.2MR.
   
 10. History
 ---------------
+
+  - v0.6.0 ( 2007/04/07 )
+    .Support VioSetMode(). So 43/50 line mode can be selected as well as 25 
+     line mode.
+    .Changing font cause codepage to be changed. Fixed.
+    .Even though codepage is changed, DBCS initialization is not performed. 
+     Fixed.
+    .XCOPY.EXE conflict with debug build. Fixed( Disabled stack overflow check 
+     with -s option )
 
   - v0.5.0 ( 2007/03/14 )
     .Support Ctrl-C and Ctrl-Break key combination.
