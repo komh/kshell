@@ -75,6 +75,8 @@ BOOL loadFt2Lib( VOID )
 exit_error :
 
     freeFt2Lib();
+
+    return FALSE;
 }
 
 VOID freeFt2Lib( VOID )
