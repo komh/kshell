@@ -414,15 +414,18 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
     int     xEnd, yEnd;
     RECTL   rcl;
 
-    setCursor( hwnd, FALSE );
-
-    hps = WinGetPS( hwnd );
-
     if( !prcl )
     {
         prcl = &rcl;
         WinQueryWindowRect( hwnd, prcl );
     }
+
+    if( WinIsRectEmpty( WinQueryAnchorBlock( hwnd ), prcl ))
+        return;
+
+    setCursor( hwnd, FALSE );
+
+    hps = WinGetPS( hwnd );
 
     xStart = X_Win2Vio( prcl->xLeft );
     yStart = Y_Win2Vio( prcl->yTop - 1 );
@@ -949,8 +952,7 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             hps = WinBeginPaint( hwnd, NULLHANDLE, &rcl );
             WinEndPaint( hps );
 
-            if( !WinIsRectEmpty( WinQueryAnchorBlock( hwnd ), &rcl ))
-                updateWindow( hwnd, &rcl );
+            updateWindow( hwnd, &rcl );
 
             return 0;
         }
