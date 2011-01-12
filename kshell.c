@@ -1571,7 +1571,6 @@ VOID initFrame( HWND hwndFrame )
     rcl.yTop = rcl.yBottom + m_lCharHeight * m_vmi.row;
     WinCalcFrameRect( hwndFrame, &rcl, FALSE );
 
-
     if( fInitFirst )
     {
         randomizeRect( &rcl );
