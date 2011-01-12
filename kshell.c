@@ -2376,6 +2376,4 @@ VOID donePipeThreadForVioSub( VOID )
     while( DosWaitThread( &m_tidPipeThread, DCWW_WAIT ) == ERROR_INTERRUPT );
 
     DosClose( m_hpipeVioSub );
-
-    _endthread();
 }
