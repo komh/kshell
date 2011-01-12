@@ -1,7 +1,6 @@
 #define INCL_VIO
 #define INCL_DOS
 #define INCL_DOSERRORS
-#define INCL_DEV
 #define INCL_WIN
 #define INCL_GPI
 #include <os2.h>
