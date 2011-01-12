@@ -645,7 +645,7 @@ VOID initMarkingMode( HWND hwnd )
 
     setCursor( hwnd, FALSE );
 
-    memcpy( pKShellData->pMarkingBuf, getPtrOfVioBuf( pKShellData ), m_vmi.row * m_vmi.col * VIO_CELLSIZE );
+    memcpy( pKShellData->pMarkingBuf, getPtrOfUpdateBuf( pKShellData ), m_vmi.row * m_vmi.col * VIO_CELLSIZE );
 
     pKShellData->ulKShellModePrev = pKShellData->ulKShellMode;
     pKShellData->ulKShellMode = KSM_MARKING;
