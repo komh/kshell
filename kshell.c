@@ -2348,6 +2348,9 @@ static VOID pipeThread( void *arg )
 
         }
 
+        // send acknowledge
+        //DosWrite( m_hpipeVioSub, &usIndex, sizeof( USHORT ), &cbActual );
+
         DosDisConnectNPipe( m_hpipeVioSub );
     } while( usIndex != ( USHORT )-1 );
 
