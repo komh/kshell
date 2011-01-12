@@ -1394,6 +1394,11 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 pKShellData->ptsEnd.y = ptsEndNew.y;
             }
             break;
+
+        case KSHELLM_INITFRAME :
+            initFrame( WinQueryWindow( hwnd, QW_PARENT ));
+            updateWindow( hwnd, NULL );
+            return 0;
     }
 
     return WinDefWindowProc( hwnd, msg, mp1, mp2 );
@@ -1778,7 +1783,44 @@ static VOID pipeThread( void *arg )
                 break;
             }
 
-            //case VI_VIOSETMODE :
+            case VI_VIOSETMODE :
+            {
+                HWND    hwndPopup;
+                PUSHORT pVioBuf;
+                int     cells;
+                int     i;
+
+                DosRead( m_hpipeVioSub, &m_vmi, sizeof( VIOMODEINFO ), &cbActual );
+
+                free( pKShellData->pVioBuf );
+                free( pKShellData->pScrollBackBuf );
+                free( pKShellData->pMarkingBuf );
+
+                hwndPopup = pKShellData->hwndPopup;
+
+                memset( pKShellData, 0, sizeof( KSHELLDATA ));
+
+                pKShellData->hwndPopup = hwndPopup;
+
+                pKShellData->ulBufSize = ( KSHELL_SCROLLBACK_LINES + m_vmi.row ) * m_vmi.col * VIO_CELLSIZE;
+
+                pKShellData->pVioBuf = malloc( pKShellData->ulBufSize );
+
+                pVioBuf = pKShellData->pVioBuf;
+                cells = pKShellData->ulBufSize / VIO_CELLSIZE;
+                for( i = 0; i < cells; i++ )
+                    *pVioBuf++ = 0x720;
+
+                pKShellData->pScrollBackBuf = malloc( pKShellData->ulBufSize );
+                memset( pKShellData->pScrollBackBuf, 0, pKShellData->ulBufSize );
+
+                pKShellData->pMarkingBuf = malloc( m_vmi.row * m_vmi.col * VIO_CELLSIZE );
+                memset( pKShellData->pMarkingBuf, 0, m_vmi.row * m_vmi.col * VIO_CELLSIZE );
+
+                WinPostMsg( hwnd, KSHELLM_INITFRAME, 0, 0 );
+                break;
+            }
+
             case VI_VIOWRTNCHAR :
             {
                 USHORT  usCol;

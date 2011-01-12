@@ -225,6 +225,37 @@ static ULONG vioSetCurType( USHORT usIndex, PVOID pargs )
 }
 
 #pragma pack( 2 )
+typedef struct tagVIOSETMODEPARAM
+{
+    HVIO                 hvio;
+    VIOMODEINFO * _Seg16 pvmi;
+} VIOSETMODEPARAM, *PVIOSETMODEPARAM;
+#pragma pack()
+
+static ULONG vioSetMode( USHORT usIndex, PVOID pargs )
+{
+    PVIOSETMODEPARAM p = pargs;
+    VIOMODEINFO      vmi;
+
+    HPIPE   hpipe;
+    ULONG   cbActual;
+
+    CALL_VIO( VioSetMode, p->pvmi, p->hvio );
+
+    vmi.cb = sizeof( VIOMODEINFO );
+    CALL_VIO( VioGetMode, &vmi, p->hvio );
+
+    pipeOpen( &hpipe );
+
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+    DosWrite( hpipe, &vmi, sizeof( VIOMODEINFO ), &cbActual );
+
+    pipeClose( hpipe );
+
+    return 0;
+}
+
+#pragma pack( 2 )
 typedef struct tagVIOWRTNCHARPARAM
 {
     HVIO            hvio;
@@ -594,7 +625,7 @@ ULONG __cdecl Entry32Main( vioargs * args )
         case VI_VIOSHOWBUF       : return vioShowBuf( args->Index, &args->VioHandle );
         case VI_VIOSETCURPOS     : return vioSetCurPos( args->Index, &args->VioHandle);
         case VI_VIOSETCURTYPE    : return vioSetCurType( args->Index, &args->VioHandle );
-        //case VI_VIOSETMODE       : return vioSetMode( args->Index, &args->VioHandle );
+        case VI_VIOSETMODE       : return vioSetMode( args->Index, &args->VioHandle );
         case VI_VIOWRTNCHAR      : return vioWrtNChar( args->Index, &args->VioHandle );
         case VI_VIOWRTNATTR      : return vioWrtNAttr( args->Index, &args->VioHandle );
         case VI_VIOWRTNCELL      : return vioWrtNCell( args->Index, &args->VioHandle );

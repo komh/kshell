@@ -38,4 +38,6 @@
 #define PM_SC_LALT      0x38
 #define PM_SC_RALT      0x5E
 
+#define KSHELLM_INITFRAME   ( WM_USER + 1 )
+
 #endif
