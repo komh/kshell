@@ -1472,6 +1472,9 @@ VOID initDBCSEnv( USHORT usCP )
     UCHAR       uchDBCSInfo[ 12 ];
     int         i, j;
 
+    m_fDBCSEnv = FALSE;
+    memset( m_afDBCSLeadByte, 0, sizeof( m_afDBCSLeadByte ));
+
     cc.country = 0;
     cc.codepage = usCP ;
 
