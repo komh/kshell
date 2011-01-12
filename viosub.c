@@ -80,10 +80,8 @@ static ULONG vioGetBuf( USHORT usIndex, PVOID pargs )
 {
     PVIOGETBUFPARAM p = pargs;
 
-    USHORT  rc;
-
     SkipFlag = TRUE;
-    rc = VioGetBuf( p->pulLVBPtr, p->pusLen, 0 );
+    VioGetBuf( p->pulLVBPtr, p->pusLen, 0 );
     SkipFlag = FALSE;
 
     m_LVBPtr = ( PCH )*( PVOID16 * )p->pulLVBPtr;
