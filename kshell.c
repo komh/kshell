@@ -15,7 +15,6 @@
 #include "viodmn.h"
 #include "viosub.h"
 
-#define TID_KSHELL  ( TID_USERMAX - 1 )
 #ifdef DEBUG
 #include <stdio.h>
 
