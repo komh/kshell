@@ -1859,8 +1859,7 @@ BOOL    callVioDmn( USHORT usMsg )
 
         if( rc == ERROR_PIPE_BUSY )
             while( DosWaitNPipe( m_szPipeName, -1 ) == ERROR_INTERRUPT );
-
-        if( rc )
+        else if( rc )
             DosSleep( 1 );
 
     } while( rc );
