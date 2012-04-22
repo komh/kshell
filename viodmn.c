@@ -886,6 +886,15 @@ void makeKeyEvent( void )
                 if( !FKC_KEYUP( fsFlags ))
                     DosSendSignalException( m_pid_comspec, XCPT_SIGNAL_BREAK );
                 return;
+
+            case 0x1F : // Ctrl-S
+                if( !FKC_KEYUP( fsFlags ))
+                {
+                    DosSMPause( m_ulSGID );
+
+                    m_fPaused = TRUE;
+                }
+                return;
         }
 
         keyPacket.cp.chChar = m_abPMScanToVio[ uchScan ][ 3 ];
@@ -899,7 +908,7 @@ void makeKeyEvent( void )
             keyPacket.cp.fbStatus |= ST_EXTENDED_KEY;
         else
         {
-            // TODO : CTRL-P, CTRL-S, ...
+            // TODO : CTRL-P, ...
         }
     }
     else
