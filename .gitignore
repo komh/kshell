@@ -1,0 +1,9 @@
+*.bak
+*.obj
+*.res
+*.lib
+*.dll
+*.exe
+*.map
+*.log
+*.err
