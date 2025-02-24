@@ -99,7 +99,11 @@ static ULONG    m_ulSGID = ( ULONG )-1;
 static HPIPE    m_hpipeVioSub = NULLHANDLE;
 static TID      m_tidPipeThread = 0;
 
-static BOOL     m_fFt2LibLoaded = FALSE;
+#define STATE_LOADED     1L
+#define STATE_FAILED     0L
+#define STATE_UNKNOWN   -1L
+
+static LONG     m_lFt2LibLoadState = STATE_UNKNOWN;
 static BOOL     m_fUseFt2Lib = FALSE;
 
 PFNENABLEFONTENGINE     ksEnableFontEngine;
@@ -1031,45 +1035,58 @@ VOID copyToClipbrd( HWND hwnd, BOOL fAll )
 
 VOID setFontMode( VOID )
 {
-    if( m_fFt2LibLoaded )
+    if( m_fUseFt2Lib )
     {
-        ksEnableFontEngine = getFt2EnableFontEngine();
+        if( m_lFt2LibLoadState == STATE_UNKNOWN )
+        {
+            if( loadFt2Lib())
+            {
+                m_lFt2LibLoadState = STATE_LOADED;
 
-        ksEnableFontEngine( m_fUseFt2Lib );
+                ksEnableFontEngine = getFt2EnableFontEngine();
+            }
+            else
+                m_lFt2LibLoadState = STATE_FAILED;
+        }
+
+        if( m_lFt2LibLoadState == STATE_LOADED )
+        {
+            ksEnableFontEngine( TRUE );
+
+            ksSetColor              = getFt2SetColor();
+            ksSetBackColor          = getFt2SetBackColor();
+            ksCharStringPosAt       = getFt2CharStringPosAt();
+            ksQueryCharStringPosAt  = getFt2QueryCharStringPosAt();
+            ksCreateLogFont         = getFt2CreateLogFont();
+            ksSetCharSet            = getFt2SetCharSet();
+            ksSetCharBox            = getFt2SetCharBox();
+            ksQueryFontMetrics      = getFt2QueryFontMetrics();
+            ksBeginPaint            = getFt2BeginPaint();
+            ksEndPaint              = getFt2EndPaint();
+            ksGetPS                 = getFt2GetPS();
+            ksGetScreenPS           = getFt2GetScreenPS();
+            ksReleasePS             = getFt2ReleasePS();
+
+            return;
+        }
     }
 
-    if( m_fFt2LibLoaded && m_fUseFt2Lib )
-    {
-        ksSetColor              = getFt2SetColor();
-        ksSetBackColor          = getFt2SetBackColor();
-        ksCharStringPosAt       = getFt2CharStringPosAt();
-        ksQueryCharStringPosAt  = getFt2QueryCharStringPosAt();
-        ksCreateLogFont         = getFt2CreateLogFont();
-        ksSetCharSet            = getFt2SetCharSet();
-        ksSetCharBox            = getFt2SetCharBox();
-        ksQueryFontMetrics      = getFt2QueryFontMetrics();
-        ksBeginPaint            = getFt2BeginPaint();
-        ksEndPaint              = getFt2EndPaint();
-        ksGetPS                 = getFt2GetPS();
-        ksGetScreenPS           = getFt2GetScreenPS();
-        ksReleasePS             = getFt2ReleasePS();
-    }
-    else
-    {
-        ksSetColor              = GpiSetColor;
-        ksSetBackColor          = GpiSetBackColor;
-        ksCharStringPosAt       = GpiCharStringPosAt;
-        ksQueryCharStringPosAt  = GpiQueryCharStringPosAt;
-        ksCreateLogFont         = GpiCreateLogFont;
-        ksSetCharSet            = GpiSetCharSet;
-        ksSetCharBox            = GpiSetCharBox;
-        ksQueryFontMetrics      = GpiQueryFontMetrics;
-        ksBeginPaint            = WinBeginPaint;
-        ksEndPaint              = WinEndPaint;
-        ksGetPS                 = WinGetPS;
-        ksGetScreenPS           = WinGetScreenPS;
-        ksReleasePS             = WinReleasePS;
-    }
+    if( m_lFt2LibLoadState == STATE_LOADED )
+        ksEnableFontEngine( FALSE );
+
+    ksSetColor              = GpiSetColor;
+    ksSetBackColor          = GpiSetBackColor;
+    ksCharStringPosAt       = GpiCharStringPosAt;
+    ksQueryCharStringPosAt  = GpiQueryCharStringPosAt;
+    ksCreateLogFont         = GpiCreateLogFont;
+    ksSetCharSet            = GpiSetCharSet;
+    ksSetCharBox            = GpiSetCharBox;
+    ksQueryFontMetrics      = GpiQueryFontMetrics;
+    ksBeginPaint            = WinBeginPaint;
+    ksEndPaint              = WinEndPaint;
+    ksGetPS                 = WinGetPS;
+    ksGetScreenPS           = WinGetScreenPS;
+    ksReleasePS             = WinReleasePS;
 }
 
 MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
@@ -1514,7 +1531,7 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             WinEnableMenuItem( pKShellData->hwndPopup, IDM_COPY,
                                pKShellData->ulKShellMode == KSM_MARKING );
 
-            WinEnableMenuItem( pKShellData->hwndPopup, IDM_FT2LIB, m_fFt2LibLoaded );
+            WinEnableMenuItem( pKShellData->hwndPopup, IDM_FT2LIB, m_lFt2LibLoadState != STATE_FAILED );
             WinCheckMenuItem( pKShellData->hwndPopup, IDM_FT2LIB, m_fUseFt2Lib );
 
             pts.x = SHORT1FROMMP( mp1 );
@@ -1664,7 +1681,6 @@ BOOL init( VOID )
 
     initDBCSEnv( m_fat.usCodePage );
 
-    m_fFt2LibLoaded = loadFt2Lib();
     lResult = PrfQueryProfileInt( HINI_USERPROFILE, PRF_APP, PRF_KEY_FT2LIB, FALSE );
     m_fUseFt2Lib = lResult ? lResult : FALSE;
 
@@ -1681,7 +1697,8 @@ BOOL init( VOID )
 
 VOID done( VOID )
 {
-    freeFt2Lib();
+    if( m_lFt2LibLoadState == STATE_LOADED )
+        freeFt2Lib();
 
     DosCloseEventSem( m_hevVioDmn );
 
@@ -1798,7 +1815,7 @@ VOID initFrame( HWND hwndFrame )
 
     ksQueryCharStringPosAt( hps, &ptlStart, 0, MAX_XCHARS, m_achXChar, NULL, m_aptlPos );
     // workaround for FT2LIB. First position can be non-zero, maybe 1
-    if( m_fFt2LibLoaded && m_fUseFt2Lib )
+    if( m_fUseFt2Lib && m_lFt2LibLoadState == STATE_LOADED )
         m_aptlPos[ 0 ].x = 0;
     for( i = 0; i < MAX_XCHARS; i++ )
         m_alXInc[ i ] = m_aptlPos[ i + 1 ].x - m_aptlPos[ i ].x;
@@ -2663,5 +2680,3 @@ VOID donePipeThreadForVioSub( VOID )
 
     DosClose( m_hpipeVioSub );
 }
-
-
