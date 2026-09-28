@@ -1522,7 +1522,7 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             break;
         }
 
-        case WM_BUTTON2CLICK :
+        case WM_CONTEXTMENU :
         {
             POINTS  pts;
             ULONG   fs = PU_NONE | PU_KEYBOARD | PU_MOUSEBUTTON1 |
