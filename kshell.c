@@ -1925,6 +1925,581 @@ VOID waitVioDmn( VOID )
 #define isFullRect( tr, lc, br, rc ) ((( tr ) == 0 ) && (( lc ) == 0 ) && \
                                       (( br ) == m_vmi.row - 1 ) && (( rc ) == m_vmi.col -1 ))
 
+static VOID vioShowBuf( HWND hwnd, USHORT usOfs, USHORT usLen )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    USHORT usRow;
+    USHORT usCol;
+    INT    y;
+    RECTL  rcl;
+
+    if( pKShellData->ulKShellMode == KSM_NORMAL )
+    {
+        usOfs /= VIO_CELLSIZE;
+        usLen /= VIO_CELLSIZE;
+        usRow = usOfs / m_vmi.col;
+        usCol = usOfs % m_vmi.col;
+
+        for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
+        {
+            rcl.xLeft = usCol;
+            rcl.yBottom = rcl.yTop = y;
+            rcl.xRight = min( usCol + usLen, m_vmi.col ) - 1;
+            usLen -= rcl.xRight - rcl.xLeft + 1;
+            convertVio2Win( &rcl );
+            updateWindow( hwnd, &rcl );
+
+            usCol = 0;
+        }
+    }
+}
+
+static VOID vioSetCurPos( HWND hwnd, USHORT usRow, USHORT usCol )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    pKShellData->x = usCol;
+    pKShellData->y = usRow;
+
+    if( pKShellData->ulKShellMode == KSM_NORMAL )
+        setCursor( hwnd, TRUE );
+}
+
+static VOID vioSetCurType( HWND hwnd, PVIOCURSORINFO pvci )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    USHORT usCellHeight = m_vmi.vres / m_vmi.row;
+
+    if(( SHORT )pvci->yStart < 0 )
+    pvci->yStart = ( usCellHeight * ( -( SHORT )pvci->yStart ) + 99 ) / 100 - 1;
+
+    if(( SHORT )pvci->cEnd < 0 )
+        pvci->cEnd = ( usCellHeight * ( -( SHORT )pvci->cEnd ) + 99 ) / 100 - 1;
+
+    if( pvci->yStart >= usCellHeight )
+        pvci->yStart = usCellHeight - 1;
+
+    if( pvci->cEnd > 31 )
+        pvci->cEnd = 31;
+
+    memcpy( &pKShellData->ci, pvci, sizeof( VIOCURSORINFO ));
+
+    if( pKShellData->ulKShellMode == KSM_NORMAL )
+        setCursor( hwnd, TRUE );
+}
+
+static VOID vioSetMode( HWND hwnd, PVIOMODEINFO pvmi )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    HWND    hwndPopup;
+    PUSHORT pVioBuf;
+    int     cells;
+    int     i;
+
+    free( pKShellData->pVioBuf );
+    free( pKShellData->pScrollBackBuf );
+    free( pKShellData->pMarkingBuf );
+
+    hwndPopup = pKShellData->hwndPopup;
+    memcpy( &m_vmi, pvmi, sizeof( VIOMODEINFO ));
+
+    memset( pKShellData, 0, sizeof( KSHELLDATA ));
+
+    pKShellData->hwndPopup = hwndPopup;
+
+    pKShellData->ulBufSize = ( KSHELL_SCROLLBACK_LINES + m_vmi.row ) * m_vmi.col * VIO_CELLSIZE;
+
+    pKShellData->pVioBuf = malloc( pKShellData->ulBufSize );
+
+    pVioBuf = pKShellData->pVioBuf;
+    cells = pKShellData->ulBufSize / VIO_CELLSIZE;
+    for( i = 0; i < cells; i++ )
+        *pVioBuf++ = 0x720;
+
+    pKShellData->pScrollBackBuf = malloc( pKShellData->ulBufSize );
+    memset( pKShellData->pScrollBackBuf, 0, pKShellData->ulBufSize );
+
+    pKShellData->pMarkingBuf = malloc( m_vmi.row * m_vmi.col * VIO_CELLSIZE );
+    memset( pKShellData->pMarkingBuf, 0, m_vmi.row * m_vmi.col * VIO_CELLSIZE );
+
+    WinPostMsg( hwnd, KSHELLM_INITFRAME, 0, 0 );
+}
+
+static VOID vioWrtNChar( HWND hwnd, CHAR ch, USHORT usTimes, USHORT usRow, USHORT usCol )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PCH     pBuf;
+    INT     x, y;
+    RECTL   rcl;
+
+    pBuf = ( PCH )(( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol );
+    for( y = usRow; ( y < m_vmi.row ) && ( usTimes > 0 ); y++ )
+    {
+        for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes--, pBuf += VIO_CELLSIZE )
+        {
+           *pBuf = ch;
+        }
+
+        if( pKShellData->ulKShellMode == KSM_NORMAL )
+        {
+            rcl.xLeft = usCol;
+            rcl.yBottom = rcl.yTop = y;
+            rcl.xRight = x - 1;
+            convertVio2Win( &rcl );
+            updateWindow( hwnd, &rcl );
+        }
+
+        usCol = 0;
+    }
+
+}
+
+static VOID vioWrtNAttr( HWND hwnd, BYTE bAttr, USHORT usTimes, USHORT usRow, USHORT usCol )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PBYTE   pBuf;
+    INT     x, y;
+    RECTL   rcl;
+
+    pBuf = ( PBYTE )(( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol ) + 1;
+    for( y = usRow; ( y < m_vmi.row ) && ( usTimes > 0 ); y++ )
+    {
+        for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes--, pBuf += VIO_CELLSIZE )
+        {
+           *pBuf = bAttr;
+        }
+
+        if( pKShellData->ulKShellMode == KSM_NORMAL )
+        {
+            rcl.xLeft = usCol;
+            rcl.yBottom = rcl.yTop = y;
+            rcl.xRight = x - 1;
+            convertVio2Win( &rcl );
+            updateWindow( hwnd, &rcl );
+        }
+
+        usCol = 0;
+    }
+
+}
+
+static VOID vioWrtNCell( HWND hwnd, USHORT usCell, USHORT usTimes, USHORT usRow, USHORT usCol )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PUSHORT pBuf;
+    INT     x, y;
+    RECTL   rcl;
+
+    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
+    for( y = usRow; ( y < m_vmi.row ) && ( usTimes > 0 ); y++ )
+    {
+        for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes-- )
+        {
+           *pBuf++ = usCell;
+        }
+
+        if( pKShellData->ulKShellMode == KSM_NORMAL )
+        {
+            rcl.xLeft = usCol;
+            rcl.yBottom = rcl.yTop = y;
+            rcl.xRight = x - 1;
+            convertVio2Win( &rcl );
+            updateWindow( hwnd, &rcl );
+        }
+
+        usCol = 0;
+    }
+}
+
+static VOID vioWrtCharStr( HWND hwnd, PCH pch, USHORT usLen, USHORT usRow, USHORT usCol )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PUSHORT pBuf;
+    INT     x, y;
+    RECTL   rcl;
+
+    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
+    for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
+    {
+        for( x = usCol; ( x < m_vmi.col ) && ( usLen > 0 ); x++, usLen--, pBuf++ )
+        {
+           *pBuf = MAKEUSHORT( *pch++, HIUCHAR( *pBuf ));
+        }
+
+        if( pKShellData->ulKShellMode == KSM_NORMAL )
+        {
+            rcl.xLeft = usCol;
+            rcl.yBottom = rcl.yTop = y;
+            rcl.xRight = x - 1;
+            convertVio2Win( &rcl );
+            updateWindow( hwnd, &rcl );
+        }
+
+        usCol = 0;
+    }
+}
+
+static VOID vioWrtCharStrAtt( HWND hwnd, PCH pch, USHORT usLen, USHORT usRow, USHORT usCol, BYTE bAttr )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PUSHORT pBuf;
+    INT     x, y;
+    RECTL   rcl;
+
+    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
+    for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
+    {
+        for( x = usCol; ( x < m_vmi.col ) && ( usLen > 0 ); x++, usLen-- )
+        {
+           *pBuf++ = MAKEUSHORT( *pch++, bAttr );
+        }
+
+        if( pKShellData->ulKShellMode == KSM_NORMAL )
+        {
+            rcl.xLeft = usCol;
+            rcl.yBottom = rcl.yTop = y;
+            rcl.xRight = x - 1;
+            convertVio2Win( &rcl );
+            updateWindow( hwnd, &rcl );
+        }
+
+        usCol = 0;
+    }
+}
+
+static VOID vioWrtCellStr( HWND hwnd, PUSHORT pusCell, USHORT usLen, USHORT usRow, USHORT usCol )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PUSHORT pBuf;
+    INT     x, y;
+    RECTL   rcl;
+
+    usLen /= VIO_CELLSIZE;
+    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
+    for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
+    {
+        for( x = usCol; ( x < m_vmi.col ) && ( usLen > 0 ); x++, usLen-- )
+        {
+           *pBuf++ = *pusCell++;
+        }
+
+        if( pKShellData->ulKShellMode == KSM_NORMAL )
+        {
+            rcl.xLeft = usCol;
+            rcl.yBottom = rcl.yTop = y;
+            rcl.xRight = x - 1;
+            convertVio2Win( &rcl );
+            updateWindow( hwnd, &rcl );
+        }
+
+        usCol = 0;
+    }
+}
+
+static VOID vioScrollUp( HWND hwnd, USHORT usTopRow, USHORT usLeftCol, USHORT usBottomRow, USHORT usRightCol, USHORT usLines, USHORT usCell )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PUSHORT pBuf;
+    INT     x, y;
+
+    if( usLeftCol >= m_vmi.col )
+        usLeftCol = m_vmi.col - 1;
+
+    if( usRightCol >= m_vmi.col )
+        usRightCol = m_vmi.col - 1;
+
+    if( usBottomRow >= m_vmi.row )
+        usBottomRow = m_vmi.row - 1;
+
+    if( usTopRow >= m_vmi.row )
+        usTopRow = m_vmi.row - 1;
+
+    if( usLines >= ( usBottomRow - usTopRow + 1 ))
+        usLines = usBottomRow - usTopRow + 1;
+
+    if( isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol ))
+    {
+        if( pKShellData->usBaseLineOfVioBuf + usLines > KSHELL_SCROLLBACK_LINES ) // Scroll buf full ?
+        {
+            pBuf = ( PUSHORT )pKShellData->pVioBuf + usLines * m_vmi.col;
+            memmove( pKShellData->pVioBuf, pBuf, ( KSHELL_SCROLLBACK_LINES + m_vmi.row - usLines ) * m_vmi.col * VIO_CELLSIZE );
+            moveBaseLineOfVioBufTo( hwnd, KSHELL_SCROLLBACK_LINES );
+        }
+        else
+            moveBaseLineOfVioBuf( hwnd, usLines );
+    }
+    else
+    {
+        for( y = usTopRow; y <= usBottomRow - usLines; y++ )
+        {
+            pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
+            memmove( pBuf, pBuf + ( usLines * m_vmi.col ), ( usRightCol - usLeftCol + 1 ) * VIO_CELLSIZE );
+        }
+    }
+
+    for( y = usBottomRow - usLines + 1; y <= usBottomRow; y++ )
+    {
+        pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
+        for( x = usLeftCol; x <= usRightCol; x++ )
+            *pBuf++ = usCell;
+    }
+
+    if( pKShellData->ulKShellMode == KSM_NORMAL )
+    {
+        RECTL   rcl;
+
+        rcl.xLeft = usLeftCol;
+        rcl.yBottom = usBottomRow;
+        rcl.xRight = usRightCol;
+        rcl.yTop = usTopRow;
+        convertVio2Win( &rcl );
+
+        setCursor( hwnd, FALSE );
+
+        scrollWindow( hwnd, 0, usLines * m_lCharHeight, &rcl );
+
+        setCursor( hwnd, TRUE );
+    }
+
+}
+
+static VOID vioScrollDn( HWND hwnd, USHORT usTopRow, USHORT usLeftCol, USHORT usBottomRow, USHORT usRightCol, USHORT usLines, USHORT usCell )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PUSHORT pBuf;
+    BOOL    fFullRect;
+    BOOL    fClearScreen = FALSE;
+    INT     x, y;
+
+    if( usLeftCol >= m_vmi.col )
+        usLeftCol = m_vmi.col - 1;
+
+    if( usRightCol >= m_vmi.col )
+        usRightCol = m_vmi.col - 1;
+
+    if( usBottomRow >= m_vmi.row )
+        usBottomRow = m_vmi.row - 1;
+
+    if( usTopRow >= m_vmi.row )
+        usTopRow = m_vmi.row - 1;
+
+    fFullRect = isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol );
+
+    if( usLines >= ( usBottomRow - usTopRow + 1 ))
+    {
+        usLines = usBottomRow - usTopRow + 1;
+        fClearScreen = fFullRect;
+    }
+
+    if( !fClearScreen )
+    {
+        for( y = usBottomRow; y >= usTopRow + usLines; y-- )
+        {
+            pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
+            memmove( pBuf, pBuf - ( usLines * m_vmi.col ), ( usRightCol - usLeftCol + 1 ) * VIO_CELLSIZE );
+        }
+    }
+    else
+    {
+        if( pKShellData->usBaseLineOfVioBuf + m_vmi.row > KSHELL_SCROLLBACK_LINES ) // Scroll buf full ?
+        {
+            pBuf = ( PUSHORT )pKShellData->pVioBuf + m_vmi.row * m_vmi.col;
+            memmove( pKShellData->pVioBuf, pBuf, ( KSHELL_SCROLLBACK_LINES + m_vmi.row - m_vmi.row ) * m_vmi.col * VIO_CELLSIZE );
+
+            moveBaseLineOfVioBufTo( hwnd, KSHELL_SCROLLBACK_LINES );
+        }
+        else
+            moveBaseLineOfVioBuf( hwnd, m_vmi.row );
+    }
+
+    for( y = usTopRow; y < usTopRow + usLines; y++ )
+    {
+        pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
+        for( x = usLeftCol; x <= usRightCol; x++ )
+            *pBuf++ = usCell;
+    }
+
+    if( pKShellData->ulKShellMode == KSM_NORMAL )
+    {
+        RECTL   rcl;
+
+        rcl.xLeft = usLeftCol;
+        rcl.yBottom = usBottomRow;
+        rcl.xRight = usRightCol;
+        rcl.yTop = usTopRow;
+        convertVio2Win( &rcl );
+
+        setCursor( hwnd, FALSE );
+
+        scrollWindow( hwnd, 0, -usLines * m_lCharHeight, &rcl );
+
+        setCursor( hwnd, TRUE );
+    }
+}
+
+static VOID vioScrollLf( HWND hwnd, USHORT usTopRow, USHORT usLeftCol, USHORT usBottomRow, USHORT usRightCol, USHORT usCols, USHORT usCell )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PUSHORT pBuf;
+    BOOL    fFullRect;
+    BOOL    fClearScreen = FALSE;
+    INT     x, y;
+
+    if( usLeftCol >= m_vmi.col )
+        usLeftCol = m_vmi.col - 1;
+
+    if( usRightCol >= m_vmi.col )
+        usRightCol = m_vmi.col - 1;
+
+    if( usBottomRow >= m_vmi.row )
+        usBottomRow = m_vmi.row - 1;
+
+    if( usTopRow >= m_vmi.row )
+        usTopRow = m_vmi.row - 1;
+
+    fFullRect = isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol );
+
+    if( usCols >= ( usBottomRow - usTopRow + 1 ))
+    {
+        usCols = usBottomRow - usTopRow + 1;
+        fClearScreen = fFullRect;
+    }
+
+    if( !fClearScreen )
+    {
+        for( y = usTopRow; y <= usBottomRow; y++ )
+        {
+            pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
+            memmove( pBuf, pBuf + usCols, ( usRightCol - usLeftCol + 1 - usCols ) * VIO_CELLSIZE );
+        }
+    }
+    else
+    {
+        if( pKShellData->usBaseLineOfVioBuf + m_vmi.row > KSHELL_SCROLLBACK_LINES ) // Scroll buf full ?
+        {
+            pBuf = ( PUSHORT )pKShellData->pVioBuf + m_vmi.row * m_vmi.col;
+            memmove( pKShellData->pVioBuf, pBuf, ( KSHELL_SCROLLBACK_LINES + m_vmi.row - m_vmi.row ) * m_vmi.col * VIO_CELLSIZE );
+
+            moveBaseLineOfVioBufTo( hwnd, KSHELL_SCROLLBACK_LINES );
+        }
+        else
+            moveBaseLineOfVioBuf( hwnd, m_vmi.row );
+    }
+
+    for( y = usTopRow; y <= usBottomRow; y++ )
+    {
+        pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usRightCol - usCols + 1;
+        for( x = usRightCol - usCols + 1; x <= usRightCol; x++ )
+            *pBuf++ = usCell;
+    }
+
+    if( pKShellData->ulKShellMode == KSM_NORMAL )
+    {
+        RECTL   rcl;
+
+        rcl.xLeft = usLeftCol;
+        rcl.yBottom = usBottomRow;
+        rcl.xRight = usRightCol;
+        rcl.yTop = usTopRow;
+        convertVio2Win( &rcl );
+
+        setCursor( hwnd, FALSE );
+
+        scrollWindow( hwnd, X_Vio2Win( usLeftCol ) - X_Vio2Win( usLeftCol + usCols ), 0, &rcl );
+
+        setCursor( hwnd, TRUE );
+    }
+
+}
+
+static VOID vioScrollRt( HWND hwnd, USHORT usTopRow, USHORT usLeftCol, USHORT usBottomRow, USHORT usRightCol, USHORT usCols, USHORT usCell )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PUSHORT pBuf;
+    BOOL    fFullRect;
+    BOOL    fClearScreen = FALSE;
+    INT     x, y;
+
+    if( usLeftCol >= m_vmi.col )
+        usLeftCol = m_vmi.col - 1;
+
+    if( usRightCol >= m_vmi.col )
+        usRightCol = m_vmi.col - 1;
+
+    if( usBottomRow >= m_vmi.row )
+        usBottomRow = m_vmi.row - 1;
+
+    if( usTopRow >= m_vmi.row )
+        usTopRow = m_vmi.row - 1;
+
+    fFullRect = isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol );
+
+    if( usCols >= ( usBottomRow - usTopRow + 1 ))
+    {
+        usCols = usBottomRow - usTopRow + 1;
+        fClearScreen = fFullRect;
+    }
+
+    if( !fClearScreen )
+    {
+        for( y = usTopRow; y <= usBottomRow; y++ )
+        {
+            pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
+            memmove( pBuf + usCols, pBuf, ( usRightCol - usLeftCol + 1 - usCols ) * VIO_CELLSIZE );
+        }
+    }
+    else
+    {
+        if( pKShellData->usBaseLineOfVioBuf + m_vmi.row > KSHELL_SCROLLBACK_LINES ) // Scroll buf full ?
+        {
+            pBuf = ( PUSHORT )pKShellData->pVioBuf + m_vmi.row * m_vmi.col;
+            memmove( pKShellData->pVioBuf, pBuf, ( KSHELL_SCROLLBACK_LINES + m_vmi.row - m_vmi.row ) * m_vmi.col * VIO_CELLSIZE );
+
+            moveBaseLineOfVioBufTo( hwnd, KSHELL_SCROLLBACK_LINES );
+        }
+        else
+            moveBaseLineOfVioBuf( hwnd, m_vmi.row );
+    }
+
+    for( y = usTopRow; y <= usBottomRow; y++ )
+    {
+        pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
+        for( x = usLeftCol; x < usLeftCol + usCols; x++ )
+            *pBuf++ = usCell;
+    }
+
+    if( pKShellData->ulKShellMode == KSM_NORMAL )
+    {
+        RECTL   rcl;
+
+        rcl.xLeft = usLeftCol;
+        rcl.yBottom = usBottomRow;
+        rcl.xRight = usRightCol;
+        rcl.yTop = usTopRow;
+        convertVio2Win( &rcl );
+
+        setCursor( hwnd, FALSE );
+
+        scrollWindow( hwnd, X_Vio2Win( usRightCol + 1 ) - X_Vio2Win( usRightCol + 1 - usCols ), 0, &rcl );
+
+        setCursor( hwnd, TRUE );
+    }
+
+}
+
 static VOID pipeThread( void *arg )
 {
     HWND        hwnd = ( HWND )arg;
@@ -1955,108 +2530,44 @@ static VOID pipeThread( void *arg )
             {
                 USHORT  usOfs;
                 USHORT  usLen;
-                USHORT  usRow;
-                USHORT  usCol;
-                INT     y;
-                RECTL   rcl;
 
                 DosRead( m_hpipeVioSub, &usOfs, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usLen, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, ( PCHAR )getPtrOfVioBuf( pKShellData ) + usOfs, usLen, &cbActual );
 
-                if( pKShellData->ulKShellMode == KSM_NORMAL )
-                {
-                    usOfs /= VIO_CELLSIZE;
-                    usLen /= VIO_CELLSIZE;
-                    usRow = usOfs / m_vmi.col;
-                    usCol = usOfs % m_vmi.col;
-
-                    for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
-                    {
-                        rcl.xLeft = usCol;
-                        rcl.yBottom = rcl.yTop = y;
-                        rcl.xRight = min( usCol + usLen, m_vmi.col ) - 1;
-                        usLen -= rcl.xRight - rcl.xLeft + 1;
-                        convertVio2Win( &rcl );
-                        updateWindow( hwnd, &rcl );
-
-                        usCol = 0;
-                    }
-                }
+                vioShowBuf( hwnd, usOfs, usLen );
                 break;
             }
 
             case VI_VIOSETCURPOS :
             {
-                DosRead( m_hpipeVioSub, &pKShellData->x, sizeof( USHORT ), &cbActual );
-                DosRead( m_hpipeVioSub, &pKShellData->y, sizeof( USHORT ), &cbActual );
+                USHORT usCol;
+                USHORT usRow;
 
-                if( pKShellData->ulKShellMode == KSM_NORMAL )
-                    setCursor( hwnd, TRUE );
+                DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
+
+                vioSetCurPos( hwnd, usRow, usCol );
                 break;
             }
 
             case VI_VIOSETCURTYPE :
             {
                 VIOCURSORINFO vci;
-                USHORT usCellHeight = m_vmi.vres / m_vmi.row;
 
                 DosRead( m_hpipeVioSub, &vci, sizeof( VIOCURSORINFO ), &cbActual );
 
-                if(( SHORT )vci.yStart < 0 )
-                    vci.yStart = ( usCellHeight * ( -( SHORT )vci.yStart ) + 99 ) / 100 - 1;
-
-                if(( SHORT )vci.cEnd < 0 )
-                    vci.cEnd = ( usCellHeight * ( -( SHORT )vci.cEnd ) + 99 ) / 100 - 1;
-
-                if( vci.yStart >= usCellHeight )
-                    vci.yStart = usCellHeight - 1;
-
-                if( vci.cEnd > 31 )
-                    vci.cEnd = 31;
-
-                memcpy( &pKShellData->ci, &vci, sizeof( VIOCURSORINFO ));
-
-                if( pKShellData->ulKShellMode == KSM_NORMAL )
-                    setCursor( hwnd, TRUE );
+                vioSetCurType( hwnd, &vci );
                 break;
             }
 
             case VI_VIOSETMODE :
             {
-                HWND    hwndPopup;
-                PUSHORT pVioBuf;
-                int     cells;
-                int     i;
+                VIOMODEINFO vmi;
 
-                DosRead( m_hpipeVioSub, &m_vmi, sizeof( VIOMODEINFO ), &cbActual );
+                DosRead( m_hpipeVioSub, &vmi, sizeof( VIOMODEINFO ), &cbActual );
 
-                free( pKShellData->pVioBuf );
-                free( pKShellData->pScrollBackBuf );
-                free( pKShellData->pMarkingBuf );
-
-                hwndPopup = pKShellData->hwndPopup;
-
-                memset( pKShellData, 0, sizeof( KSHELLDATA ));
-
-                pKShellData->hwndPopup = hwndPopup;
-
-                pKShellData->ulBufSize = ( KSHELL_SCROLLBACK_LINES + m_vmi.row ) * m_vmi.col * VIO_CELLSIZE;
-
-                pKShellData->pVioBuf = malloc( pKShellData->ulBufSize );
-
-                pVioBuf = pKShellData->pVioBuf;
-                cells = pKShellData->ulBufSize / VIO_CELLSIZE;
-                for( i = 0; i < cells; i++ )
-                    *pVioBuf++ = 0x720;
-
-                pKShellData->pScrollBackBuf = malloc( pKShellData->ulBufSize );
-                memset( pKShellData->pScrollBackBuf, 0, pKShellData->ulBufSize );
-
-                pKShellData->pMarkingBuf = malloc( m_vmi.row * m_vmi.col * VIO_CELLSIZE );
-                memset( pKShellData->pMarkingBuf, 0, m_vmi.row * m_vmi.col * VIO_CELLSIZE );
-
-                WinPostMsg( hwnd, KSHELLM_INITFRAME, 0, 0 );
+                vioSetMode( hwnd, &vmi );
                 break;
             }
 
@@ -2066,34 +2577,13 @@ static VOID pipeThread( void *arg )
                 USHORT  usRow;
                 USHORT  usTimes;
                 CHAR    ch;
-                PCH     pBuf;
-                INT     x, y;
-                RECTL   rcl;
 
                 DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usTimes, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &ch, sizeof( CHAR ), &cbActual );
 
-                pBuf = ( PCH )(( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol );
-                for( y = usRow; ( y < m_vmi.row ) && ( usTimes > 0 ); y++ )
-                {
-                    for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes--, pBuf += VIO_CELLSIZE )
-                    {
-                       *pBuf = ch;
-                    }
-
-                    if( pKShellData->ulKShellMode == KSM_NORMAL )
-                    {
-                        rcl.xLeft = usCol;
-                        rcl.yBottom = rcl.yTop = y;
-                        rcl.xRight = x - 1;
-                        convertVio2Win( &rcl );
-                        updateWindow( hwnd, &rcl );
-                    }
-
-                    usCol = 0;
-                }
+                vioWrtNChar( hwnd, ch, usTimes, usRow, usCol );
                 break;
             }
 
@@ -2103,34 +2593,13 @@ static VOID pipeThread( void *arg )
                 USHORT  usRow;
                 USHORT  usTimes;
                 BYTE    bAttr;
-                PBYTE   pBuf;
-                INT     x, y;
-                RECTL   rcl;
 
                 DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usTimes, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &bAttr, sizeof( BYTE ), &cbActual );
 
-                pBuf = ( PBYTE )(( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol ) + 1;
-                for( y = usRow; ( y < m_vmi.row ) && ( usTimes > 0 ); y++ )
-                {
-                    for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes--, pBuf += VIO_CELLSIZE )
-                    {
-                       *pBuf = bAttr;
-                    }
-
-                    if( pKShellData->ulKShellMode == KSM_NORMAL )
-                    {
-                        rcl.xLeft = usCol;
-                        rcl.yBottom = rcl.yTop = y;
-                        rcl.xRight = x - 1;
-                        convertVio2Win( &rcl );
-                        updateWindow( hwnd, &rcl );
-                    }
-
-                    usCol = 0;
-                }
+                vioWrtNAttr( hwnd, bAttr, usTimes, usRow, usCol );
                 break;
             }
 
@@ -2140,34 +2609,13 @@ static VOID pipeThread( void *arg )
                 USHORT  usRow;
                 USHORT  usTimes;
                 USHORT  usCell;
-                PUSHORT pBuf;
-                INT     x, y;
-                RECTL   rcl;
 
                 DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usTimes, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * VIO_CELLSIZE, &cbActual );
 
-                pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
-                for( y = usRow; ( y < m_vmi.row ) && ( usTimes > 0 ); y++ )
-                {
-                    for( x = usCol; ( x < m_vmi.col ) && ( usTimes > 0 ); x++, usTimes-- )
-                    {
-                       *pBuf++ = usCell;
-                    }
-
-                    if( pKShellData->ulKShellMode == KSM_NORMAL )
-                    {
-                        rcl.xLeft = usCol;
-                        rcl.yBottom = rcl.yTop = y;
-                        rcl.xRight = x - 1;
-                        convertVio2Win( &rcl );
-                        updateWindow( hwnd, &rcl );
-                    }
-
-                    usCol = 0;
-                }
+                vioWrtNCell( hwnd, usCell, usTimes, usRow, usCol );
                 break;
             }
 
@@ -2176,10 +2624,7 @@ static VOID pipeThread( void *arg )
                 USHORT  usCol;
                 USHORT  usRow;
                 USHORT  usLen;
-                PCH     pchCharStr, pch;
-                PUSHORT pBuf;
-                INT     x, y;
-                RECTL   rcl;
+                PCH     pchCharStr;
 
                 DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
@@ -2188,26 +2633,8 @@ static VOID pipeThread( void *arg )
                 pchCharStr = malloc( usLen );
                 DosRead( m_hpipeVioSub, pchCharStr, usLen, &cbActual );
 
-                pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
-                pch = pchCharStr;
-                for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
-                {
-                    for( x = usCol; ( x < m_vmi.col ) && ( usLen > 0 ); x++, usLen--, pBuf++ )
-                    {
-                       *pBuf = MAKEUSHORT( *pch++, HIUCHAR( *pBuf ));
-                    }
+                vioWrtCharStr( hwnd, pchCharStr, usLen, usRow, usCol );
 
-                    if( pKShellData->ulKShellMode == KSM_NORMAL )
-                    {
-                        rcl.xLeft = usCol;
-                        rcl.yBottom = rcl.yTop = y;
-                        rcl.xRight = x - 1;
-                        convertVio2Win( &rcl );
-                        updateWindow( hwnd, &rcl );
-                    }
-
-                    usCol = 0;
-                }
                 free( pchCharStr );
                 break;
             }
@@ -2218,10 +2645,7 @@ static VOID pipeThread( void *arg )
                 USHORT  usCol;
                 USHORT  usRow;
                 USHORT  usLen;
-                PCH     pchCharStr, pch;
-                PUSHORT pBuf;
-                INT     x, y;
-                RECTL   rcl;
+                PCH     pchCharStr;
 
                 DosRead( m_hpipeVioSub, &bAttr, sizeof( BYTE ), &cbActual );
                 DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
@@ -2231,26 +2655,8 @@ static VOID pipeThread( void *arg )
                 pchCharStr = malloc( usLen );
                 DosRead( m_hpipeVioSub, pchCharStr, usLen, &cbActual );
 
-                pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
-                pch = pchCharStr;
-                for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
-                {
-                    for( x = usCol; ( x < m_vmi.col ) && ( usLen > 0 ); x++, usLen-- )
-                    {
-                       *pBuf++ = MAKEUSHORT( *pch++, bAttr );
-                    }
+                vioWrtCharStrAtt( hwnd, pchCharStr, usLen, usRow, usCol, bAttr );
 
-                    if( pKShellData->ulKShellMode == KSM_NORMAL )
-                    {
-                        rcl.xLeft = usCol;
-                        rcl.yBottom = rcl.yTop = y;
-                        rcl.xRight = x - 1;
-                        convertVio2Win( &rcl );
-                        updateWindow( hwnd, &rcl );
-                    }
-
-                    usCol = 0;
-                }
                 free( pchCharStr );
                 break;
             }
@@ -2260,10 +2666,7 @@ static VOID pipeThread( void *arg )
                 USHORT  usCol;
                 USHORT  usRow;
                 USHORT  usLen;
-                PUSHORT pusCellStr, pusCell;
-                PUSHORT pBuf;
-                INT     x, y;
-                RECTL   rcl;
+                PUSHORT pusCellStr;
 
                 DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
@@ -2272,27 +2675,8 @@ static VOID pipeThread( void *arg )
                 pusCellStr = malloc( usLen );
                 DosRead( m_hpipeVioSub, pusCellStr, usLen, &cbActual );
 
-                usLen /= VIO_CELLSIZE;
-                pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
-                pusCell = pusCellStr;
-                for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
-                {
-                    for( x = usCol; ( x < m_vmi.col ) && ( usLen > 0 ); x++, usLen-- )
-                    {
-                       *pBuf++ = *pusCell++;
-                    }
+                vioWrtCellStr( hwnd, pusCellStr, usLen, usRow, usCol );
 
-                    if( pKShellData->ulKShellMode == KSM_NORMAL )
-                    {
-                        rcl.xLeft = usCol;
-                        rcl.yBottom = rcl.yTop = y;
-                        rcl.xRight = x - 1;
-                        convertVio2Win( &rcl );
-                        updateWindow( hwnd, &rcl );
-                    }
-
-                    usCol = 0;
-                }
                 free( pusCellStr );
                 break;
             }
@@ -2306,9 +2690,6 @@ static VOID pipeThread( void *arg )
                 USHORT  usLeftCol;
                 USHORT  usTopRow;
 
-                PUSHORT pBuf;
-                INT     x, y;
-
                 DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * 2, &cbActual );
                 DosRead( m_hpipeVioSub, &usLines, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usRightCol, sizeof( USHORT ), &cbActual );
@@ -2316,64 +2697,7 @@ static VOID pipeThread( void *arg )
                 DosRead( m_hpipeVioSub, &usLeftCol, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usTopRow, sizeof( USHORT ), &cbActual );
 
-                if( usLeftCol >= m_vmi.col )
-                    usLeftCol = m_vmi.col - 1;
-
-                if( usRightCol >= m_vmi.col )
-                    usRightCol = m_vmi.col - 1;
-
-                if( usBottomRow >= m_vmi.row )
-                    usBottomRow = m_vmi.row - 1;
-
-                if( usTopRow >= m_vmi.row )
-                    usTopRow = m_vmi.row - 1;
-
-                if( usLines >= ( usBottomRow - usTopRow + 1 ))
-                    usLines = usBottomRow - usTopRow + 1;
-
-                if( isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol ))
-                {
-                    if( pKShellData->usBaseLineOfVioBuf + usLines > KSHELL_SCROLLBACK_LINES ) // Scroll buf full ?
-                    {
-                        pBuf = ( PUSHORT )pKShellData->pVioBuf + usLines * m_vmi.col;
-                        memmove( pKShellData->pVioBuf, pBuf, ( KSHELL_SCROLLBACK_LINES + m_vmi.row - usLines ) * m_vmi.col * VIO_CELLSIZE );
-                        moveBaseLineOfVioBufTo( hwnd, KSHELL_SCROLLBACK_LINES );
-                    }
-                    else
-                        moveBaseLineOfVioBuf( hwnd, usLines );
-                }
-                else
-                {
-                    for( y = usTopRow; y <= usBottomRow - usLines; y++ )
-                    {
-                        pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
-                        memmove( pBuf, pBuf + ( usLines * m_vmi.col ), ( usRightCol - usLeftCol + 1 ) * VIO_CELLSIZE );
-                    }
-                }
-
-                for( y = usBottomRow - usLines + 1; y <= usBottomRow; y++ )
-                {
-                    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
-                    for( x = usLeftCol; x <= usRightCol; x++ )
-                        *pBuf++ = usCell;
-                }
-
-                if( pKShellData->ulKShellMode == KSM_NORMAL )
-                {
-                    RECTL   rcl;
-
-                    rcl.xLeft = usLeftCol;
-                    rcl.yBottom = usBottomRow;
-                    rcl.xRight = usRightCol;
-                    rcl.yTop = usTopRow;
-                    convertVio2Win( &rcl );
-
-                    setCursor( hwnd, FALSE );
-
-                    scrollWindow( hwnd, 0, usLines * m_lCharHeight, &rcl );
-
-                    setCursor( hwnd, TRUE );
-                }
+                vioScrollUp( hwnd, usTopRow, usLeftCol, usBottomRow, usRightCol, usLines, usCell );
                 break;
 
             }
@@ -2387,11 +2711,6 @@ static VOID pipeThread( void *arg )
                 USHORT  usLeftCol;
                 USHORT  usTopRow;
 
-                PUSHORT pBuf;
-                BOOL    fFullRect;
-                BOOL    fClearScreen = FALSE;
-                INT     x, y;
-
                 DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * 2, &cbActual );
                 DosRead( m_hpipeVioSub, &usLines, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usRightCol, sizeof( USHORT ), &cbActual );
@@ -2399,70 +2718,7 @@ static VOID pipeThread( void *arg )
                 DosRead( m_hpipeVioSub, &usLeftCol, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usTopRow, sizeof( USHORT ), &cbActual );
 
-                if( usLeftCol >= m_vmi.col )
-                    usLeftCol = m_vmi.col - 1;
-
-                if( usRightCol >= m_vmi.col )
-                    usRightCol = m_vmi.col - 1;
-
-                if( usBottomRow >= m_vmi.row )
-                    usBottomRow = m_vmi.row - 1;
-
-                if( usTopRow >= m_vmi.row )
-                    usTopRow = m_vmi.row - 1;
-
-                fFullRect = isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol );
-
-                if( usLines >= ( usBottomRow - usTopRow + 1 ))
-                {
-                    usLines = usBottomRow - usTopRow + 1;
-                    fClearScreen = fFullRect;
-                }
-
-                if( !fClearScreen )
-                {
-                    for( y = usBottomRow; y >= usTopRow + usLines; y-- )
-                    {
-                        pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
-                        memmove( pBuf, pBuf - ( usLines * m_vmi.col ), ( usRightCol - usLeftCol + 1 ) * VIO_CELLSIZE );
-                    }
-                }
-                else
-                {
-                    if( pKShellData->usBaseLineOfVioBuf + m_vmi.row > KSHELL_SCROLLBACK_LINES ) // Scroll buf full ?
-                    {
-                        pBuf = ( PUSHORT )pKShellData->pVioBuf + m_vmi.row * m_vmi.col;
-                        memmove( pKShellData->pVioBuf, pBuf, ( KSHELL_SCROLLBACK_LINES + m_vmi.row - m_vmi.row ) * m_vmi.col * VIO_CELLSIZE );
-
-                        moveBaseLineOfVioBufTo( hwnd, KSHELL_SCROLLBACK_LINES );
-                    }
-                    else
-                        moveBaseLineOfVioBuf( hwnd, m_vmi.row );
-                }
-
-                for( y = usTopRow; y < usTopRow + usLines; y++ )
-                {
-                    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
-                    for( x = usLeftCol; x <= usRightCol; x++ )
-                        *pBuf++ = usCell;
-                }
-
-                if( pKShellData->ulKShellMode == KSM_NORMAL )
-                {
-                    RECTL   rcl;
-
-                    rcl.xLeft = usLeftCol;
-                    rcl.yBottom = usBottomRow;
-                    rcl.xRight = usRightCol;
-                    rcl.yTop = usTopRow;
-                    convertVio2Win( &rcl );
-
-                    setCursor( hwnd, FALSE );
-
-                    scrollWindow( hwnd, 0, -usLines * m_lCharHeight, &rcl );
-
-                    setCursor( hwnd, TRUE );
-                }
+                vioScrollDn( hwnd, usTopRow, usLeftCol, usBottomRow, usRightCol, usLines, usCell );
                 break;
             }
 
@@ -2475,11 +2731,6 @@ static VOID pipeThread( void *arg )
                 USHORT  usLeftCol;
                 USHORT  usTopRow;
 
-                PUSHORT pBuf;
-                BOOL    fFullRect;
-                BOOL    fClearScreen = FALSE;
-                INT     x, y;
-
                 DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * 2, &cbActual );
                 DosRead( m_hpipeVioSub, &usCols, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usRightCol, sizeof( USHORT ), &cbActual );
@@ -2487,70 +2738,8 @@ static VOID pipeThread( void *arg )
                 DosRead( m_hpipeVioSub, &usLeftCol, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usTopRow, sizeof( USHORT ), &cbActual );
 
-                if( usLeftCol >= m_vmi.col )
-                    usLeftCol = m_vmi.col - 1;
-
-                if( usRightCol >= m_vmi.col )
-                    usRightCol = m_vmi.col - 1;
-
-                if( usBottomRow >= m_vmi.row )
-                    usBottomRow = m_vmi.row - 1;
-
-                if( usTopRow >= m_vmi.row )
-                    usTopRow = m_vmi.row - 1;
-
-                fFullRect = isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol );
-
-                if( usCols >= ( usBottomRow - usTopRow + 1 ))
-                {
-                    usCols = usBottomRow - usTopRow + 1;
-                    fClearScreen = fFullRect;
-                }
-
-                if( !fClearScreen )
-                {
-                    for( y = usTopRow; y <= usBottomRow; y++ )
-                    {
-                        pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
-                        memmove( pBuf, pBuf + usCols, ( usRightCol - usLeftCol + 1 - usCols ) * VIO_CELLSIZE );
-                    }
-                }
-                else
-                {
-                    if( pKShellData->usBaseLineOfVioBuf + m_vmi.row > KSHELL_SCROLLBACK_LINES ) // Scroll buf full ?
-                    {
-                        pBuf = ( PUSHORT )pKShellData->pVioBuf + m_vmi.row * m_vmi.col;
-                        memmove( pKShellData->pVioBuf, pBuf, ( KSHELL_SCROLLBACK_LINES + m_vmi.row - m_vmi.row ) * m_vmi.col * VIO_CELLSIZE );
-
-                        moveBaseLineOfVioBufTo( hwnd, KSHELL_SCROLLBACK_LINES );
-                    }
-                    else
-                        moveBaseLineOfVioBuf( hwnd, m_vmi.row );
-                }
-
-                for( y = usTopRow; y <= usBottomRow; y++ )
-                {
-                    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usRightCol - usCols + 1;
-                    for( x = usRightCol - usCols + 1; x <= usRightCol; x++ )
-                        *pBuf++ = usCell;
-                }
-
-                if( pKShellData->ulKShellMode == KSM_NORMAL )
-                {
-                    RECTL   rcl;
-
-                    rcl.xLeft = usLeftCol;
-                    rcl.yBottom = usBottomRow;
-                    rcl.xRight = usRightCol;
-                    rcl.yTop = usTopRow;
-                    convertVio2Win( &rcl );
-
-                    setCursor( hwnd, FALSE );
-
-                    scrollWindow( hwnd, X_Vio2Win( usLeftCol ) - X_Vio2Win( usLeftCol + usCols ), 0, &rcl );
-
-                    setCursor( hwnd, TRUE );
-                }
+                vioScrollLf( hwnd, usTopRow, usLeftCol, usBottomRow, usRightCol, usCols, usCell );
+                break;
             }
 
             case VI_VIOSCROLLRT :
@@ -2562,11 +2751,6 @@ static VOID pipeThread( void *arg )
                 USHORT  usLeftCol;
                 USHORT  usTopRow;
 
-                PUSHORT pBuf;
-                BOOL    fFullRect;
-                BOOL    fClearScreen = FALSE;
-                INT     x, y;
-
                 DosRead( m_hpipeVioSub, &usCell, sizeof( BYTE ) * 2, &cbActual );
                 DosRead( m_hpipeVioSub, &usCols, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usRightCol, sizeof( USHORT ), &cbActual );
@@ -2574,70 +2758,7 @@ static VOID pipeThread( void *arg )
                 DosRead( m_hpipeVioSub, &usLeftCol, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usTopRow, sizeof( USHORT ), &cbActual );
 
-                if( usLeftCol >= m_vmi.col )
-                    usLeftCol = m_vmi.col - 1;
-
-                if( usRightCol >= m_vmi.col )
-                    usRightCol = m_vmi.col - 1;
-
-                if( usBottomRow >= m_vmi.row )
-                    usBottomRow = m_vmi.row - 1;
-
-                if( usTopRow >= m_vmi.row )
-                    usTopRow = m_vmi.row - 1;
-
-                fFullRect = isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol );
-
-                if( usCols >= ( usBottomRow - usTopRow + 1 ))
-                {
-                    usCols = usBottomRow - usTopRow + 1;
-                    fClearScreen = fFullRect;
-                }
-
-                if( !fClearScreen )
-                {
-                    for( y = usTopRow; y <= usBottomRow; y++ )
-                    {
-                        pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
-                        memmove( pBuf + usCols, pBuf, ( usRightCol - usLeftCol + 1 - usCols ) * VIO_CELLSIZE );
-                    }
-                }
-                else
-                {
-                    if( pKShellData->usBaseLineOfVioBuf + m_vmi.row > KSHELL_SCROLLBACK_LINES ) // Scroll buf full ?
-                    {
-                        pBuf = ( PUSHORT )pKShellData->pVioBuf + m_vmi.row * m_vmi.col;
-                        memmove( pKShellData->pVioBuf, pBuf, ( KSHELL_SCROLLBACK_LINES + m_vmi.row - m_vmi.row ) * m_vmi.col * VIO_CELLSIZE );
-
-                        moveBaseLineOfVioBufTo( hwnd, KSHELL_SCROLLBACK_LINES );
-                    }
-                    else
-                        moveBaseLineOfVioBuf( hwnd, m_vmi.row );
-                }
-
-                for( y = usTopRow; y <= usBottomRow; y++ )
-                {
-                    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + usLeftCol;
-                    for( x = usLeftCol; x < usLeftCol + usCols; x++ )
-                        *pBuf++ = usCell;
-                }
-
-                if( pKShellData->ulKShellMode == KSM_NORMAL )
-                {
-                    RECTL   rcl;
-
-                    rcl.xLeft = usLeftCol;
-                    rcl.yBottom = usBottomRow;
-                    rcl.xRight = usRightCol;
-                    rcl.yTop = usTopRow;
-                    convertVio2Win( &rcl );
-
-                    setCursor( hwnd, FALSE );
-
-                    scrollWindow( hwnd, X_Vio2Win( usRightCol + 1 ) - X_Vio2Win( usRightCol + 1 - usCols ), 0, &rcl );
-
-                    setCursor( hwnd, TRUE );
-                }
+                vioScrollRt( hwnd, usTopRow, usLeftCol, usBottomRow, usRightCol, usCols, usCell );
                 break;
             }
             //case VI_VIOPOPUP :
