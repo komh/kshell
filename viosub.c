@@ -455,6 +455,33 @@ static ULONG vioWrtCellStr( USHORT usIndex, PVOID pargs )
 }
 
 #pragma pack( 2 )
+typedef struct tagVIOWRTTTYPARAM
+{
+    HVIO            hvio;
+    USHORT          usLen;
+    CHAR  * _Seg16  pchCharStr;
+} VIOWRTTTYPARAM, *PVIOWRTTTYPARAM;
+#pragma pack()
+
+static ULONG vioWrtTTY( USHORT usIndex, PVOID pargs )
+{
+    PVIOWRTTTYPARAM p = pargs;
+
+    HPIPE   hpipe;
+    ULONG   cbActual;
+
+    pipeOpen( &hpipe );
+
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+    DosWrite( hpipe, &p->usLen, sizeof( USHORT ), &cbActual );
+    DosWrite( hpipe, p->pchCharStr, p->usLen, &cbActual );
+
+    pipeClose( hpipe );
+
+    return 0;
+}
+
+#pragma pack( 2 )
 typedef struct tagVIOSCROLLUPPARAM
 {
     HVIO            hvio;
@@ -631,6 +658,7 @@ ULONG __cdecl Entry32Main( vioargs * args )
         case VI_VIOWRTCHARSTR    : return vioWrtCharStr( args->Index, &args->VioHandle );
         case VI_VIOWRTCHARSTRATT : return vioWrtCharStrAtt( args->Index, &args->VioHandle );
         case VI_VIOWRTCELLSTR    : return vioWrtCellStr( args->Index, &args->VioHandle );
+        case VI_VIOWRTTTY        : return vioWrtTTY( args->Index, &args->VioHandle );
         case VI_VIOSCROLLUP      : return vioScrollUp( args->Index, &args->VioHandle );
         case VI_VIOSCROLLDN      : return vioScrollDn( args->Index, &args->VioHandle );
         case VI_VIOSCROLLLF      : return vioScrollLf( args->Index, &args->VioHandle );

@@ -2500,6 +2500,118 @@ static VOID vioScrollRt( HWND hwnd, USHORT usTopRow, USHORT usLeftCol, USHORT us
 
 }
 
+static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PUSHORT pBuf;
+    int     x, y;
+    int     xStart;
+    CHAR    chControl;
+    RECTL   rcl;
+
+    x = pKShellData->x;
+    y = pKShellData->y;
+    while( usLen > 0 )
+    {
+        pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + x;
+
+        xStart = x;
+        chControl = 0;
+
+        while( x < m_vmi.col && usLen > 0 )
+        {
+            switch( *pch )
+            {
+                case '\a':  // Bell
+                case '\b':  // Backspace
+                case '\r':  // Carriage return
+                case '\n':  // Line feed
+                    chControl = *pch;
+                    break;
+
+                case '\t':  // Horizontal tab
+                {
+                    INT nextStop = ( x + 8 ) & ~7;  // 8-char width aligned
+
+                    chControl = *pch;
+
+                    while( x < nextStop )
+                    {
+                        *( PUCHAR )pBuf = ' ';
+
+                        pBuf++;
+                        x++;
+                    }
+
+                    break;
+                }
+
+                default:
+                    *( PUCHAR )pBuf = *pch;
+                    break;
+            }
+
+            pch++;
+            usLen--;
+
+            if( chControl == '\t')
+                continue;
+
+            if( chControl )
+                break;
+
+            x++;
+            pBuf++;
+        }
+
+        if( pKShellData->ulKShellMode == KSM_NORMAL )
+        {
+            rcl.xLeft = xStart;
+            rcl.yBottom = rcl.yTop = y;
+            rcl.xRight = x - 1;
+            convertVio2Win( &rcl );
+            updateWindow( hwnd, &rcl );
+        }
+
+        switch( chControl )
+        {
+            case '\a':  // Bell
+                // FIXME
+                // DosBeep( 440, 500 );
+                break;
+
+            case '\b':  // Backspace
+                x--;
+                break;
+
+            case '\r':  // Carriage return
+                x = 0;
+                break;
+
+            case '\n':  // Line feed
+                y++;
+                break;
+
+            default:
+                if( x == m_vmi.col )
+                {
+                    x = 0;
+                    y++;
+                }
+                break;
+        }
+
+        if( y == m_vmi.row )
+        {
+            vioScrollUp( hwnd, 0, 0, m_vmi.row, m_vmi.col, 1, 0x0720 );
+            y--;
+        }
+    }
+
+    vioSetCurPos( hwnd, y, x );
+}
+
 static VOID pipeThread( void *arg )
 {
     HWND        hwnd = ( HWND )arg;
@@ -2678,6 +2790,22 @@ static VOID pipeThread( void *arg )
                 vioWrtCellStr( hwnd, pusCellStr, usLen, usRow, usCol );
 
                 free( pusCellStr );
+                break;
+            }
+
+            case VI_VIOWRTTTY :
+            {
+                USHORT  usLen;
+                PCH     pchCharStr;
+
+                DosRead( m_hpipeVioSub, &usLen, sizeof( USHORT ), &cbActual );
+
+                pchCharStr = malloc( usLen );
+                DosRead( m_hpipeVioSub, pchCharStr, usLen, &cbActual );
+
+                vioWrtTTY( hwnd, pchCharStr, usLen );
+
+                free( pchCharStr );
                 break;
             }
 
