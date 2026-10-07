@@ -155,7 +155,7 @@ static VOID setFontMode( VOID );
 
 static MRESULT EXPENTRY windowProc( HWND, ULONG, MPARAM, MPARAM );
 
-INT main( VOID )
+int main( int argc, char *argv[])
 {
     HAB      hab;
     HMQ      hmq;
@@ -164,8 +164,28 @@ INT main( VOID )
     HWND     hwndClient;
     QMSG     qm;
     HATOMTBL hSATbl;        // handle to system atom table
+    int      rows = 25;
+    int      cols = 80;
+    int      result = 0;
+    int      i;
 
-    int     result = 0;
+    for( i = 1; i < argc; i++ )
+    {
+        if( strcmp( argv[ i ], "-rows") == 0 && i + 1 < argc )
+        {
+            rows = atoi( argv[ ++i ]);
+            if( rows < 1 )
+                rows = 25;
+        }
+        else if( strcmp( argv[ i ], "-cols") == 0 && i + 1 < argc )
+        {
+            cols = atoi( argv[ ++i ]);
+            if( cols < 1 )
+                cols = 80;
+            else if( cols > MAX_XCHARS )
+                cols = MAX_XCHARS;
+        }
+    }
 
     init();
 
@@ -184,6 +204,10 @@ INT main( VOID )
     }
 
     memcpy( &m_vmi, m_pVioBuf, sizeof( VIOMODEINFO ));
+    m_vmi.vres = m_vmi.vres / m_vmi.row * rows;
+    m_vmi.hres = m_vmi.hres / m_vmi.col * cols;
+    m_vmi.row = rows;
+    m_vmi.col = cols;
 
     if( callVioDmn( MSG_SGID ))
     {
