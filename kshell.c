@@ -2379,9 +2379,9 @@ static VOID vioScrollLf( HWND hwnd, USHORT usTopRow, USHORT usLeftCol, USHORT us
 
     fFullRect = isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol );
 
-    if( usCols >= ( usBottomRow - usTopRow + 1 ))
+    if( usCols >= ( usRightCol - usLeftCol + 1 ))
     {
-        usCols = usBottomRow - usTopRow + 1;
+        usCols = usRightCol - usLeftCol + 1;
         fClearScreen = fFullRect;
     }
 
@@ -2455,9 +2455,9 @@ static VOID vioScrollRt( HWND hwnd, USHORT usTopRow, USHORT usLeftCol, USHORT us
 
     fFullRect = isFullRect( usTopRow, usLeftCol, usBottomRow, usRightCol );
 
-    if( usCols >= ( usBottomRow - usTopRow + 1 ))
+    if( usCols >= ( usRightCol - usLeftCol + 1 ))
     {
-        usCols = usBottomRow - usTopRow + 1;
+        usCols = usRightCol - usLeftCol + 1;
         fClearScreen = fFullRect;
     }
 
