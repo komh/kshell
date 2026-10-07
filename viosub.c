@@ -126,6 +126,37 @@ static ULONG vioGetBuf( USHORT usIndex, PVOID pargs )
 }
 
 #pragma pack( 2 )
+typedef struct tagVIOGETCURPOSPARAM
+{
+    HVIO            hvio;
+    USHORT * _Seg16 pusCol;
+    USHORT * _Seg16 pusRow;
+} VIOGETCURPOSPARAM, *PVIOGETCURPOSPARAM;
+#pragma pack()
+
+static ULONG vioGetCurPos( USHORT usIndex, PVOID pargs )
+{
+    PVIOGETCURPOSPARAM p = pargs;
+
+    HPIPE   hpipe;
+    ULONG   cbActual;
+
+    pipeOpen( &hpipe );
+
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+
+    DosRead( hpipe, p->pusCol, sizeof( USHORT ), &cbActual );
+    DosRead( hpipe, p->pusRow, sizeof( USHORT ), &cbActual );
+
+    // Send ACK
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+
+    pipeClose( hpipe );
+
+    return 0;
+}
+
+#pragma pack( 2 )
 typedef struct tagVIOSHOWBUFPARAM
 {
     HVIO    hvio;
@@ -648,6 +679,7 @@ ULONG __cdecl Entry32Main( vioargs * args )
     switch( args->Index )
     {
         case VI_VIOGETBUF        : return vioGetBuf( args->Index, &args->VioHandle );
+        case VI_VIOGETCURPOS     : return vioGetCurPos( args->Index, &args->VioHandle );
         case VI_VIOSHOWBUF       : return vioShowBuf( args->Index, &args->VioHandle );
         case VI_VIOSETCURPOS     : return vioSetCurPos( args->Index, &args->VioHandle);
         case VI_VIOSETCURTYPE    : return vioSetCurType( args->Index, &args->VioHandle );

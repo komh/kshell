@@ -1925,6 +1925,14 @@ VOID waitVioDmn( VOID )
 #define isFullRect( tr, lc, br, rc ) ((( tr ) == 0 ) && (( lc ) == 0 ) && \
                                       (( br ) == m_vmi.row - 1 ) && (( rc ) == m_vmi.col -1 ))
 
+static VOID vioGetCurPos( HWND hwnd, PUSHORT pusRow, PUSHORT pusCol )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    *pusRow = pKShellData->y;
+    *pusCol = pKShellData->x;
+}
+
 static VOID vioShowBuf( HWND hwnd, USHORT usOfs, USHORT usLen )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
@@ -2638,6 +2646,21 @@ static VOID pipeThread( void *arg )
 
         switch( usIndex )
         {
+            case VI_VIOGETCURPOS :
+            {
+                USHORT usCol;
+                USHORT usRow;
+
+                vioGetCurPos( hwnd, &usRow, &usCol );
+
+                DosWrite( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
+                DosWrite( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
+
+                // Read ACK
+                DosRead( m_hpipeVioSub, &cbActual, sizeof( USHORT ), &cbActual );
+                break;
+            }
+
             case VI_VIOSHOWBUF :
             {
                 USHORT  usOfs;
