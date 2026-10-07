@@ -303,6 +303,17 @@ typedef struct tagKSHELLDATA
     POINTS  ptsStart;
     POINTS  ptsEnd;
     HWND    hwndPopup;
+#define MAX_CSI_PARAMS  16
+    BOOL    fESC;
+    BOOL    fCSI;
+    LONG    alCSIParams[ MAX_CSI_PARAMS ];
+    LONG    lCSIParamIndex;
+    BOOL    fIntensity;
+    BOOL    fBlinking;
+    LONG    lFgColor;
+    LONG    lBgColor;
+    USHORT  usSavedX;
+    USHORT  usSavedY;
 } KSHELLDATA, *PKSHELLDATA;
 
 #define getPtrOfUpdateBuf( pKShellData ) \
@@ -1130,6 +1141,12 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             memcpy( pKShellData, m_pVioBuf, VIO_CISIZE );
 
             pKShellData->hwndPopup = WinLoadMenu( hwnd, NULLHANDLE, ID_POPUP );
+
+            pKShellData->lFgColor = 7;
+            pKShellData->lBgColor = 0;
+            pKShellData->usSavedX = 0;
+            pKShellData->usSavedY = 0;
+
             return 0;
         }
 
@@ -2508,8 +2525,22 @@ static VOID vioScrollRt( HWND hwnd, USHORT usTopRow, USHORT usLeftCol, USHORT us
 
 }
 
+#define MAKECELL( ch, pksd ) MAKEUSHORT(( ch ), ( pksd )->lFgColor | (( pksd )->lBgColor << 4 ))
+
 static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
 {
+    // See aiColorTable of setAttr()
+    static const int aiAnsiColorTable[] = {
+        0,  // Black
+        4,  // Red
+        2,  // Green
+        6,  // Yellow
+        1,  // Blue
+        5,  // Pink
+        3,  // Cyan
+        7,  // White
+    };
+
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
 
     PUSHORT pBuf;
@@ -2522,6 +2553,199 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
     y = pKShellData->y;
     while( usLen > 0 )
     {
+        if( pKShellData->fESC )
+        {
+            if( !pKShellData->fCSI )
+            {
+                if( *pch == '[')
+                {
+                    pch++;
+                    usLen--;
+
+                    pKShellData->fCSI = TRUE;
+                    memset( &pKShellData->alCSIParams[ 0 ], -1, sizeof( pKShellData->alCSIParams ));
+                    pKShellData->lCSIParamIndex = 0;
+                }
+                else
+                    pKShellData->fESC = FALSE;
+            }
+
+            while( pKShellData->fCSI && usLen > 0 )
+            {
+                if( *pch >= '0' && *pch <= '9')
+                {
+                    if( pKShellData->lCSIParamIndex < MAX_CSI_PARAMS )
+                    {
+                        if( pKShellData->alCSIParams[ pKShellData->lCSIParamIndex ] == -1 )
+                            pKShellData->alCSIParams[ pKShellData->lCSIParamIndex ] = 0;
+                        pKShellData->alCSIParams[ pKShellData->lCSIParamIndex ] = pKShellData->alCSIParams[ pKShellData->lCSIParamIndex ] * 10 + *pch - '0';
+                    }
+                }
+                else if( *pch == ';')
+                    pKShellData->lCSIParamIndex++;
+                else
+                {
+                    switch( *pch )
+                    {
+                        case 'A': // Cursor Up
+                            // ESC[A == ESC[1A
+                            y -= pKShellData->alCSIParams[ 0 ] < 1 ? 1 : pKShellData->alCSIParams[ 0 ];
+                            if( y < 0 )
+                                y = 0;
+                            break;
+
+                        case 'B': // Curosr Down
+                            // ESC[B == ESC[1B
+                            y += pKShellData->alCSIParams[ 0 ] < 1 ? 1 : pKShellData->alCSIParams[ 0 ];
+                            if( y >= m_vmi.row )
+                                y = m_vmi.row - 1;
+                            break;
+
+                        case 'C': // Cursor Forward
+                            // ESC[C == ESC[1C
+                            x += pKShellData->alCSIParams[ 0 ] < 1 ? 1 : pKShellData->alCSIParams[ 0 ];
+                            if( x >= m_vmi.col )
+                                x = m_vmi.col - 1;
+                            break;
+
+                        case 'D': // Curosr Back
+                            // ESC[D == ESC[1D
+                            x -= pKShellData->alCSIParams[ 0 ] < 1 ? 1 : pKShellData->alCSIParams[ 0 ];
+                            if( x < 0 )
+                                x = 0;
+                            break;
+
+                        case 'H': // Cursor Position
+                        case 'f': // Horizontal Vertical Position
+                        {
+                            // ESC[H == ESC[1;1H
+                            // ESC[10;H == ESC[10H == ESC[10;1H
+                            // ESC[;10H == ESC[1;10H
+                            int row = pKShellData->alCSIParams[ 0 ];
+                            int col = pKShellData->alCSIParams[ 1 ];
+
+                            if( row > m_vmi.row )
+                                row = m_vmi.row;
+                            if( row < 1 )
+                                row = 1;
+                            if( col > m_vmi.col )
+                                col = m_vmi.col;
+                            if( col < 1 )
+                                col = 1;
+
+                            if( row > 0 )
+                                row--;
+                            if( col > 0 )
+                                col--;
+
+                            x = col;
+                            y = row;
+                            break;
+                        }
+
+                        case 'J': // Erase in Display
+                            // ESC[J == ESC[0J
+                            if( pKShellData->alCSIParams[ 0 ] == 2 )
+                            {
+                                vioScrollUp( hwnd, 0, 0, m_vmi.row, m_vmi.col, m_vmi.row, MAKECELL( 0x20, pKShellData ));
+                                x = 0;
+                                y = 0;
+                            }
+                            break;
+
+                        case 'K': // Erase in Line
+                            // ESC[K == ESC[0K
+                            if( pKShellData->alCSIParams[ 0 ] < 1 )
+                                vioScrollRt( hwnd, y, x, y, m_vmi.col, m_vmi.col, MAKECELL( 0x20, pKShellData ));
+                            break;
+
+                        case 'm': // Select Graphic Rendition
+                        {
+                            int i;
+                            int attr;
+
+                            // ESC[m == ESC[0m
+                            if( pKShellData->alCSIParams[ 0 ] == -1 )
+                                pKShellData->alCSIParams[ 0 ] = 0;
+
+                            for( i = 0; i <= pKShellData->lCSIParamIndex; i++ )
+                            {
+                                attr = pKShellData->alCSIParams[ i ];
+
+                                if( attr >= 30 && attr <= 37 )
+                                    pKShellData->lFgColor = aiAnsiColorTable[ attr - 30 ];
+                                else if( attr >= 40 && attr <= 47 )
+                                    pKShellData->lBgColor = aiAnsiColorTable[ attr - 40 ];
+
+                                switch( attr )
+                                {
+                                    case 0:     // Reset
+                                        pKShellData->fIntensity = FALSE;
+                                        pKShellData->fBlinking = FALSE;
+                                        pKShellData->lFgColor = 7;
+                                        pKShellData->lBgColor = 0;
+                                        break;
+
+                                    case 1:     // High intensity
+                                        pKShellData->fIntensity = TRUE;
+                                        break;
+
+                                    case 5:     // Blinking
+                                        pKShellData->fBlinking = TRUE;
+                                        break;
+
+                                    case 7:     // Reverse video
+                                        pKShellData->lFgColor = 0;
+                                        pKShellData->lBgColor = 7;
+                                        break;
+
+                                    case 8:     // Invisible
+                                        pKShellData->lFgColor = 0;
+                                        pKShellData->lBgColor = 0;
+                                        break;
+
+                                    case 2:     // Normal intensity
+                                    default:    // Unsupported
+                                        break;
+                                }
+
+                                if( pKShellData->fIntensity )
+                                    pKShellData->lFgColor |= 8;
+                                if( pKShellData->fBlinking )
+                                    pKShellData->lBgColor |= 8;
+                            }
+
+                            break;
+                        }
+
+                        case 's': // Save Current Cursor Position
+                            pKShellData->usSavedX = x;
+                            pKShellData->usSavedY = y;
+                            break;
+
+                        case 'u': // Restore Saved Cursor Position
+                            x = pKShellData->usSavedX;
+                            y = pKShellData->usSavedY;
+                            break;
+
+                        case 'h': // Sett Video Mode
+                        case 'l': // Reset Vide Mode
+                        case 'p': // Set keyboard strings
+                        case 'n': // Device Status Report
+                        default:
+                            // unsupported final byte or invalid byte
+                            break;
+                    }
+
+                    pKShellData->fCSI = FALSE;
+                    pKShellData->fESC = FALSE;
+                }
+
+                pch++;
+                usLen--;
+            }
+        }
+
         pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( y * m_vmi.col ) + x;
 
         xStart = x;
@@ -2535,6 +2759,7 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
                 case '\b':  // Backspace
                 case '\r':  // Carriage return
                 case '\n':  // Line feed
+                case '\x1b':// ESC
                     chControl = *pch;
                     break;
 
@@ -2546,7 +2771,7 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
 
                     while( x < nextStop )
                     {
-                        *( PUCHAR )pBuf = ' ';
+                        *pBuf = MAKECELL( 0x20, pKShellData );
 
                         pBuf++;
                         x++;
@@ -2556,7 +2781,7 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
                 }
 
                 default:
-                    *( PUCHAR )pBuf = *pch;
+                    *pBuf = MAKECELL( *pch, pKShellData );
                     break;
             }
 
@@ -2601,6 +2826,10 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
                 y++;
                 break;
 
+            case '\x1b':    // ESC
+                pKShellData->fESC = TRUE;
+                break;
+
             default:
                 if( x == m_vmi.col )
                 {
@@ -2612,7 +2841,7 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
 
         if( y == m_vmi.row )
         {
-            vioScrollUp( hwnd, 0, 0, m_vmi.row, m_vmi.col, 1, 0x0720 );
+            vioScrollUp( hwnd, 0, 0, m_vmi.row, m_vmi.col, 1, MAKECELL( 0x20, pKShellData ));
             y--;
         }
     }
