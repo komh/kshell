@@ -1950,6 +1950,11 @@ static VOID vioGetCurPos( HWND hwnd, PUSHORT pusRow, PUSHORT pusCol )
     *pusCol = pKShellData->x;
 }
 
+static VOID vioGetMode( HWND hwnd, PVIOMODEINFO pvmi )
+{
+    memcpy( pvmi, &m_vmi, sizeof( VIOMODEINFO ));
+}
+
 static VOID vioShowBuf( HWND hwnd, USHORT usOfs, USHORT usLen )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
@@ -2889,6 +2894,19 @@ static VOID pipeThread( void *arg )
                 DosRead( m_hpipeVioSub, &cbActual, sizeof( USHORT ), &cbActual );
                 break;
             }
+
+            case VI_VIOGETMODE :
+             {
+                 VIOMODEINFO vmi;
+
+                 vioGetMode( hwnd, &vmi );
+
+                 DosWrite( m_hpipeVioSub, &vmi, sizeof( VIOMODEINFO ), &cbActual );
+
+                 // Read ACK
+                 DosRead( m_hpipeVioSub, &cbActual, sizeof( USHORT ), &cbActual );
+                 break;
+             }
 
             case VI_VIOSHOWBUF :
             {
