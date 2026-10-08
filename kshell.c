@@ -1150,11 +1150,8 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             for( i = 0; i < cells; i++ )
                 *pVioBuf++ = 0x720;
 
-            pKShellData->pScrollBackBuf = malloc( pKShellData->ulBufSize );
-            memset( pKShellData->pScrollBackBuf, 0, pKShellData->ulBufSize );
-
-            pKShellData->pMarkingBuf = malloc( m_vmi.row * m_vmi.col * VIO_CELLSIZE );
-            memset( pKShellData->pMarkingBuf, 0, m_vmi.row * m_vmi.col * VIO_CELLSIZE );
+            pKShellData->pScrollBackBuf = calloc( pKShellData->ulBufSize, 1 );
+            pKShellData->pMarkingBuf = calloc( m_vmi.row * m_vmi.col, VIO_CELLSIZE );
 
             if( callVioDmn( MSG_CURINFO ))
             {
@@ -2073,11 +2070,8 @@ static VOID vioSetMode( HWND hwnd, PVIOMODEINFO pvmi )
     for( i = 0; i < cells; i++ )
         *pVioBuf++ = 0x720;
 
-    pKShellData->pScrollBackBuf = malloc( pKShellData->ulBufSize );
-    memset( pKShellData->pScrollBackBuf, 0, pKShellData->ulBufSize );
-
-    pKShellData->pMarkingBuf = malloc( m_vmi.row * m_vmi.col * VIO_CELLSIZE );
-    memset( pKShellData->pMarkingBuf, 0, m_vmi.row * m_vmi.col * VIO_CELLSIZE );
+    pKShellData->pScrollBackBuf = calloc( pKShellData->ulBufSize, 1 );
+    pKShellData->pMarkingBuf = calloc( m_vmi.row * m_vmi.col, VIO_CELLSIZE );
 
     WinPostMsg( hwnd, KSHELLM_INITFRAME, 0, 0 );
 }
