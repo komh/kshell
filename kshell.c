@@ -5,6 +5,7 @@
 #define INCL_GPI
 #include <os2.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -19,8 +20,6 @@
 #include "viosub.h"
 
 #ifdef DEBUG
-#include <stdio.h>
-
 #define dprintf( ... ) \
 {\
     FILE *fp;\
@@ -139,6 +138,7 @@ static VOID waitVioDmn( VOID );
 static VOID initPipeThreadForVioSub( HWND hwnd );
 static VOID donePipeThreadForVioSub( VOID );
 
+static VOID setTitle( HWND hwnd );
 static VOID updateWindow( HWND hwnd, PRECTL prcl );
 
 static VOID initScrollBackMode( HWND hwnd );
@@ -511,6 +511,18 @@ static VOID drawCharStringPosAt( HAB hab, PKSHELLDATA pKShellData, HPS hps, USHO
     }
 }
 
+VOID setTitle( HWND hwnd )
+{
+    PKSHELLDATA pksd = WinQueryWindowPtr( hwnd, 0 );
+    CHAR szTitle[ 80 ];
+
+    snprintf( szTitle, sizeof( szTitle ), "%s%s %dx%d",
+              pksd->ulKShellMode == KSM_SCROLLBACK ? "Scroll Back Mode : " :
+              pksd->ulKShellMode == KSM_MARKING ? "Marking Mode : " : "",
+              BASE_TITLE, m_vmi.col, m_vmi.row );
+    WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), szTitle );
+}
+
 VOID updateWindow( HWND hwnd, PRECTL prcl )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
@@ -707,11 +719,6 @@ static VOID scrollWindow( HWND hwnd, LONG lDx, LONG lDy, PRECTL prcl )
 VOID initScrollBackMode( HWND hwnd )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
-    CHAR        szTitle[ 50 ];
-
-    strcpy( szTitle, "Scroll Back Mode : ");
-    WinQueryWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), sizeof( szTitle ), szTitle + strlen( szTitle ));
-    WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), szTitle );
 
     pKShellData->pScrollBackBuf = malloc( pKShellData->ulBufSize );
     pKShellData->pbScrollBackCont = allocCont( KSHELL_SCROLLBACK_LINES + m_vmi.row );
@@ -724,15 +731,12 @@ VOID initScrollBackMode( HWND hwnd )
     setCursor( hwnd, FALSE );
 
     pKShellData->ulKShellMode = KSM_SCROLLBACK;
+    setTitle(hwnd );
 }
 
 VOID doneScrollBackMode( HWND hwnd )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
-    CHAR        szTitle[ 50 ];
-
-    WinQueryWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), sizeof( szTitle ), szTitle );
-    WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), strchr( szTitle, ':' ) + 2 );
 
     freeCont( pKShellData->pbScrollBackCont );
     pKShellData->pbScrollBackCont = NULL;
@@ -741,6 +745,7 @@ VOID doneScrollBackMode( HWND hwnd )
     pKShellData->pScrollBackBuf = NULL;
 
     pKShellData->ulKShellMode = KSM_NORMAL;
+    setTitle( hwnd );
 
     WinSendMsg( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_VERTSCROLL ),
                 SBM_SETPOS,
@@ -755,11 +760,6 @@ VOID doneScrollBackMode( HWND hwnd )
 VOID initMarkingMode( HWND hwnd )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
-    CHAR        szTitle[ 50 ];
-
-    strcpy( szTitle, "Marking Mode : ");
-    WinQueryWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), sizeof( szTitle ), szTitle + strlen( szTitle ));
-    WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), szTitle );
 
     setCursor( hwnd, FALSE );
 
@@ -769,21 +769,19 @@ VOID initMarkingMode( HWND hwnd )
     pKShellData->ulKShellModePrev = pKShellData->ulKShellMode;
     pKShellData->ulKShellMode = KSM_MARKING;
     pKShellData->fUpdateInvertRect = TRUE;
+    setTitle( hwnd );
 }
 
 VOID doneMarkingMode( HWND hwnd )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
-    CHAR        szTitle[ 50 ];
-
-    WinQueryWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), sizeof( szTitle ), szTitle );
-    WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), strchr( szTitle, ':' ) + 2 );
 
     free( pKShellData->pMarkingBuf );
     pKShellData->pMarkingBuf = NULL;
 
     pKShellData->ulKShellMode = pKShellData->ulKShellModePrev;
     pKShellData->fUpdateInvertRect = FALSE;
+    setTitle( hwnd );
 
     setCursor( hwnd, TRUE );
 
@@ -1423,6 +1421,8 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             pKShellData->usSavedY = 0;
 
             pKShellData->pbCont = allocCont( KSHELL_SCROLLBACK_LINES + m_vmi.row );
+
+            setTitle( hwnd );
             return 0;
         }
 
@@ -1935,6 +1935,7 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             m_vmi.row = rows;
             m_vmi.col = cols;
 
+            setTitle( hwnd );
             return 0;
         }
 
