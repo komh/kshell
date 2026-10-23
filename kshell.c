@@ -316,6 +316,8 @@ typedef struct tagKSHELLDATA
     PVOID   pVioBuf;
     PVOID   pScrollBackBuf;
     PVOID   pMarkingBuf;
+    PBYTE   pbCont;
+    PBYTE   pbScrollBackCont;
     USHORT  usBaseLineOfVioBuf;
     USHORT  usBaseLineOfScrollBackBuf;
     USHORT  usLastLineOfScrollBackBuf;
@@ -338,7 +340,6 @@ typedef struct tagKSHELLDATA
     LONG    lBgColor;
     USHORT  usSavedX;
     USHORT  usSavedY;
-    PBYTE   pbCont;
     BOOL    fInitFrame;
 } KSHELLDATA, *PKSHELLDATA;
 
@@ -702,7 +703,12 @@ VOID initScrollBackMode( HWND hwnd )
     WinQueryWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), sizeof( szTitle ), szTitle + strlen( szTitle ));
     WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), szTitle );
 
+    pKShellData->pScrollBackBuf = malloc( pKShellData->ulBufSize );
+    pKShellData->pbScrollBackCont = allocCont( KSHELL_SCROLLBACK_LINES + m_vmi.row );
+
     memcpy( pKShellData->pScrollBackBuf, pKShellData->pVioBuf, pKShellData->ulBufSize );
+    memcpy( pKShellData->pbScrollBackCont, pKShellData->pbCont, ( KSHELL_SCROLLBACK_LINES + m_vmi.row ) / 8 + 1 );
+
     pKShellData->usBaseLineOfScrollBackBuf = pKShellData->usBaseLineOfVioBuf;
     pKShellData->usLastLineOfScrollBackBuf = pKShellData->usBaseLineOfVioBuf;
     setCursor( hwnd, FALSE );
@@ -717,6 +723,12 @@ VOID doneScrollBackMode( HWND hwnd )
 
     WinQueryWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), sizeof( szTitle ), szTitle );
     WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), strchr( szTitle, ':' ) + 2 );
+
+    freeCont( pKShellData->pbScrollBackCont );
+    pKShellData->pbScrollBackCont = NULL;
+
+    free( pKShellData->pScrollBackBuf );
+    pKShellData->pScrollBackBuf = NULL;
 
     pKShellData->ulKShellMode = KSM_NORMAL;
 
@@ -741,6 +753,7 @@ VOID initMarkingMode( HWND hwnd )
 
     setCursor( hwnd, FALSE );
 
+    pKShellData->pMarkingBuf = malloc( m_vmi.row * m_vmi.col * VIO_CELLSIZE );
     memcpy( pKShellData->pMarkingBuf, getPtrOfUpdateBuf( pKShellData ), m_vmi.row * m_vmi.col * VIO_CELLSIZE );
 
     pKShellData->ulKShellModePrev = pKShellData->ulKShellMode;
@@ -755,6 +768,9 @@ VOID doneMarkingMode( HWND hwnd )
 
     WinQueryWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), sizeof( szTitle ), szTitle );
     WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), strchr( szTitle, ':' ) + 2 );
+
+    free( pKShellData->pMarkingBuf );
+    pKShellData->pMarkingBuf = NULL;
 
     pKShellData->ulKShellMode = pKShellData->ulKShellModePrev;
     pKShellData->fUpdateInvertRect = FALSE;
@@ -1132,6 +1148,152 @@ VOID setFontMode( VOID )
     ksReleasePS             = WinReleasePS;
 }
 
+static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    int x, y;
+    int xEnd, yEnd;
+    int xNew, yNew;
+    int xCur, yCur;
+    int xCurNew, yCurNew;
+    int cells;
+    int lines;
+
+    USHORT usBaseLine, usBaseLineNew = ( USHORT )-1;
+
+    PVOID   pVioBuf, pVioBufNew;
+    PUSHORT pus, pusNew;
+    PBYTE   pbCont, pbContNew;
+
+    yEnd = KSHELL_SCROLLBACK_LINES + m_vmi.row;
+    lines = yEnd * (( m_vmi.col + cols - 1 ) / cols );
+    pVioBufNew = calloc( lines * cols, VIO_CELLSIZE );
+    pbContNew = allocCont( lines );
+
+    xNew = 0;
+    yNew = 0;
+
+    xCur = pKShellData->x;
+    yCur = pKShellData->usBaseLineOfVioBuf + pKShellData->y;
+
+    if( ulMode == KSM_NORMAL )
+    {
+        usBaseLine = pKShellData->usBaseLineOfVioBuf;
+        pVioBuf = pKShellData->pVioBuf;
+        pbCont = pKShellData->pbCont;
+    }
+    else
+    {
+        usBaseLine = pKShellData->usBaseLineOfScrollBackBuf;
+        pVioBuf = pKShellData->pScrollBackBuf;
+        pbCont = pKShellData->pbScrollBackCont;
+    }
+
+    for( y = 0; y < yEnd; y++ )
+    {
+        for( x = 0; x < m_vmi.col;)
+        {
+            pus = ( PUSHORT )pVioBuf + y * m_vmi.col;
+
+            for( xEnd = x; xEnd < m_vmi.col; xEnd++ )
+            {
+                if( LOUCHAR( pus[ xEnd ]) == 0x00 )
+                    break;
+            }
+
+            pus += x;
+            pusNew = ( PUSHORT )pVioBufNew + yNew * cols + xNew;
+
+            cells = min( xEnd - x, cols - xNew );
+            memcpy( pusNew, pus, cells * VIO_CELLSIZE );
+
+            if( ulMode == KSM_NORMAL && y == yCur && xCur >= x && xCur <= x + cells )
+            {
+                xCurNew = xCur - x + xNew;
+                yCurNew = yNew;
+            }
+
+            if( usBaseLineNew == ( USHORT )-1 && y == usBaseLine )
+                usBaseLineNew = yNew;
+
+            x += cells;
+            if( x == xEnd )
+            {
+                if( !isCont( pbCont, y ))
+                {
+                    xNew = 0;
+                    yNew++;
+
+                    break;
+                }
+
+                x = m_vmi.col;  // break out loop
+            }
+
+            xNew += cells;
+            if( xNew == cols )
+            {
+                setCont( pbContNew, yNew );
+
+                xNew = 0;
+                yNew++;
+            }
+        }
+    }
+
+    if( ulMode == KSM_NORMAL )
+    {
+        usBaseLineNew = yCurNew - ( yCur - usBaseLine );
+        if(yCurNew - usBaseLineNew >= rows )
+            usBaseLineNew = yCurNew - rows + 1;
+    }
+
+    if( usBaseLineNew > KSHELL_SCROLLBACK_LINES )
+    {
+        yNew = usBaseLineNew - KSHELL_SCROLLBACK_LINES;
+        yCurNew -= yNew;
+        usBaseLineNew = KSHELL_SCROLLBACK_LINES;
+    }
+    else
+        yNew = 0;
+
+    lines = KSHELL_SCROLLBACK_LINES + rows;
+
+    freeCont( pbCont );
+    free( pVioBuf );
+
+    pKShellData->ulBufSize = lines * cols * VIO_CELLSIZE;
+    pVioBuf = malloc( pKShellData->ulBufSize );
+    pbCont = allocCont( lines );
+
+    memcpy( pVioBuf, ( PUSHORT )pVioBufNew + yNew * cols, min( lines, KSHELL_SCROLLBACK_LINES + m_vmi.row ) * cols * VIO_CELLSIZE );
+
+    for( y = 0; y < KSHELL_SCROLLBACK_LINES + rows; y++, yNew++ )
+    {
+        if( isCont( pbContNew, yNew ))
+            setCont( pbCont, y );
+    }
+
+    freeCont( pbContNew );
+    free( pVioBufNew );
+
+    if( ulMode == KSM_NORMAL )
+    {
+        pKShellData->x = xCurNew;
+        pKShellData->y = yCurNew - usBaseLineNew;
+        pKShellData->usBaseLineOfVioBuf = usBaseLineNew;
+        pKShellData->pVioBuf = pVioBuf;
+        pKShellData->pbCont = pbCont;
+    }
+    else
+    {
+        pKShellData->usBaseLineOfScrollBackBuf = usBaseLineNew;
+        pKShellData->pScrollBackBuf = pVioBuf;
+        pKShellData->pbScrollBackCont = pbCont;
+    }
+}
+
 MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
@@ -1158,9 +1320,6 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             for( i = 0; i < cells; i++ )
                 *pVioBuf++ = 0x0700;
 
-            pKShellData->pScrollBackBuf = calloc( pKShellData->ulBufSize, 1 );
-            pKShellData->pMarkingBuf = calloc( m_vmi.row * m_vmi.col, VIO_CELLSIZE );
-
             if( callVioDmn( MSG_CURINFO ))
             {
                 WinPostMsg( hwnd, WM_QUIT, 0, 0 );
@@ -1183,8 +1342,6 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
         case WM_DESTROY :
         {
             freeCont( pKShellData->pbCont );
-            free( pKShellData->pMarkingBuf );
-            free( pKShellData->pScrollBackBuf );
             free( pKShellData->pVioBuf );
             free( pKShellData );
 
@@ -1672,125 +1829,19 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 
         case WM_SIZE :
         {
-            int rows = SHORT2FROMMP( mp2 ) / m_lCharHeight;
-            int cols = SHORT1FROMMP( mp2 ) / m_fat.lAveCharWidth;
+            LONG rows = SHORT2FROMMP( mp2 ) / m_lCharHeight;
+            LONG cols = SHORT1FROMMP( mp2 ) / m_fat.lAveCharWidth;
 
-            int x, y;
-            int xEnd, yEnd;
-            int xNew, yNew;
-            int xCur, yCur;
-            int xCurNew, yCurNew;
-            int cells;
-            int lines;
-
-            USHORT usBaseLineNew = ( USHORT )-1;
-
-            PVOID   pVioBufNew;
-            PUSHORT pus, pusNew;
-            PBYTE   pbContNew;
+            if( pKShellData->ulKShellMode == KSM_MARKING )
+                doneMarkingMode( hwnd );
 
             if( pKShellData->fInitFrame || ( rows == m_vmi.row && cols == m_vmi.col ))
                 return 0;
 
-            yEnd = KSHELL_SCROLLBACK_LINES + m_vmi.row;
-            lines = yEnd * (( m_vmi.col + cols - 1 ) / cols );
-            pVioBufNew = calloc( lines * cols, VIO_CELLSIZE );
-            pbContNew = allocCont( lines );
+            if( pKShellData->ulKShellMode == KSM_SCROLLBACK )
+                resize( hwnd, KSM_SCROLLBACK, rows, cols );
 
-            xNew = 0;
-            yNew = 0;
-
-            xCur = pKShellData->x;
-            yCur = pKShellData->usBaseLineOfVioBuf + pKShellData->y;
-
-            for( y = 0; y < yEnd; y++ )
-            {
-                for( x = 0; x < m_vmi.col;)
-                {
-                    pus = ( PUSHORT )pKShellData->pVioBuf + y * m_vmi.col;
-
-                    for( xEnd = x; xEnd < m_vmi.col; xEnd++ )
-                    {
-                        if( LOUCHAR( pus[ xEnd ]) == 0x00 )
-                            break;
-                    }
-
-                    pus += x;
-                    pusNew = ( PUSHORT )pVioBufNew + yNew * cols + xNew;
-
-                    cells = min( xEnd - x, cols - xNew );
-                    memcpy( pusNew, pus, cells * VIO_CELLSIZE );
-
-                    if( y == yCur && xCur >= x && xCur <= x + cells )
-                    {
-                        xCurNew = xCur - x + xNew;
-                        yCurNew = yNew;
-                    }
-
-                    if( usBaseLineNew == ( USHORT )-1 && y == pKShellData->usBaseLineOfVioBuf )
-                        usBaseLineNew = yNew;
-
-                    x += cells;
-                    if( x == xEnd )
-                    {
-                        if( !isCont( pKShellData->pbCont, y ))
-                        {
-                            xNew = 0;
-                            yNew++;
-
-                            break;
-                        }
-
-                        x = m_vmi.col;  // break out loop
-                    }
-
-                    xNew += cells;
-                    if( xNew == cols )
-                    {
-                        setCont( pbContNew, yNew );
-
-                        xNew = 0;
-                        yNew++;
-                    }
-                }
-            }
-
-            if( yCurNew - usBaseLineNew >= rows )
-                usBaseLineNew = yCurNew - rows + 1;
-
-            if( usBaseLineNew > KSHELL_SCROLLBACK_LINES )
-            {
-                yCurNew -= usBaseLineNew - KSHELL_SCROLLBACK_LINES;
-                y = usBaseLineNew - KSHELL_SCROLLBACK_LINES;
-                lines -= y;
-                usBaseLineNew = KSHELL_SCROLLBACK_LINES;
-            }
-            else
-            {
-                y = 0;
-                lines = KSHELL_SCROLLBACK_LINES + rows;
-            }
-
-            freeCont( pKShellData->pbCont );
-            free( pKShellData->pVioBuf );
-
-            pKShellData->pVioBuf = calloc( lines * cols, VIO_CELLSIZE );
-            pKShellData->pbCont = allocCont( lines );
-
-            memcpy( pKShellData->pVioBuf, ( PUSHORT )pVioBufNew + y * cols, lines * cols * VIO_CELLSIZE );
-
-            for( yNew = 0; yNew < KSHELL_SCROLLBACK_LINES + rows; yNew++, y++ )
-            {
-                if( isCont( pbContNew, y ))
-                    setCont( pKShellData->pbCont, yNew );
-            }
-
-            freeCont( pbContNew );
-            free( pVioBufNew );
-
-            pKShellData->x = xCurNew;
-            pKShellData->y = yCurNew - usBaseLineNew;
-            pKShellData->usBaseLineOfVioBuf = usBaseLineNew;
+            resize( hwnd, KSM_NORMAL, rows, cols );
 
             m_vmi.vres = m_vmi.vres / m_vmi.row * rows;
             m_vmi.hres = m_vmi.hres / m_vmi.col * cols;
@@ -2197,8 +2248,6 @@ static VOID vioSetMode( HWND hwnd, PVIOMODEINFO pvmi )
     int     i;
 
     free( pKShellData->pVioBuf );
-    free( pKShellData->pScrollBackBuf );
-    free( pKShellData->pMarkingBuf );
 
     hwndPopup = pKShellData->hwndPopup;
     memcpy( &m_vmi, pvmi, sizeof( VIOMODEINFO ));
@@ -2215,9 +2264,6 @@ static VOID vioSetMode( HWND hwnd, PVIOMODEINFO pvmi )
     cells = pKShellData->ulBufSize / VIO_CELLSIZE;
     for( i = 0; i < cells; i++ )
         *pVioBuf++ = 0x0700;
-
-    pKShellData->pScrollBackBuf = calloc( pKShellData->ulBufSize, 1 );
-    pKShellData->pMarkingBuf = calloc( m_vmi.row * m_vmi.col, VIO_CELLSIZE );
 
     WinPostMsg( hwnd, KSHELLM_INITFRAME, 0, 0 );
 }
