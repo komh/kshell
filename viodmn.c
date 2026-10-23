@@ -1002,7 +1002,7 @@ void termVioSubPipeThread( void )
         else if( rc )
             DosSleep( 1 );
 
-    } while( rc );
+    } while( rc != 0 && rc != ERROR_PATH_NOT_FOUND );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
 

@@ -158,8 +158,17 @@ static VOID setFontMode( VOID );
 static MRESULT EXPENTRY frameWndProc( HWND, ULONG, MPARAM, MPARAM );
 static MRESULT EXPENTRY windowProc( HWND, ULONG, MPARAM, MPARAM );
 
+static ULONG _System exitHandler( PEXCEPTIONREPORTRECORD p1, PEXCEPTIONREGISTRATIONRECORD p2, PCONTEXTRECORD p3, PVOID pv )
+{
+    if( p1->ExceptionNum == XCPT_PROCESS_TERMINATE )
+        donePipeThreadForVioSub();
+
+    return XCPT_CONTINUE_SEARCH;
+}
+
 int main( int argc, char *argv[])
 {
+    EXCEPTIONREGISTRATIONRECORD xcptRec = { 0, };
     HAB      hab;
     HMQ      hmq;
     ULONG    flFrameFlags;
@@ -218,6 +227,9 @@ int main( int argc, char *argv[])
         goto main_exit;
     }
 
+    xcptRec.ExceptionHandler = ( ERR )exitHandler;
+    DosSetExceptionHandler( &xcptRec );
+
     memcpy( &m_ulSGID, m_pVioBuf, sizeof( ULONG ));
 
     hab = WinInitialize( 0 );
@@ -272,6 +284,8 @@ int main( int argc, char *argv[])
 
     WinDestroyMsgQueue( hmq );
     WinTerminate( hab );
+
+    DosUnsetExceptionHandler( &xcptRec );
 
 main_exit:
     done();
