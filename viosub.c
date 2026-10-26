@@ -671,6 +671,52 @@ typedef struct vioargs {
 
 ULONG __cdecl Entry32Main( vioargs * args )
 {
+#define MAX_VIOINDEX    40
+
+    static const char *apszVioNames[ MAX_VIOINDEX + 1 ] = {
+        "VI_VIOGETPHYSBUF",
+        "VI_VIOGETBUF",
+        "VI_VIOSHOWBUF",
+        "VI_VIOGETCURPOS",
+        "VI_VIOGETCURTYPE",
+        "VI_VIOGETMODE",
+        "VI_VIOSETCURPOS",
+        "VI_VIOSETCURTYPE",
+        "VI_VIOSETMODE",
+        "VI_VIOREADCHARSTR",
+        "VI_VIOREADCELLSTR",
+        "VI_VIOWRTNCHAR",
+        "VI_VIOWRTNATTR",
+        "VI_VIOWRTNCELL",
+        "VI_VIOWRTCHARSTR",
+        "VI_VIOWRTCHARSTRATT",
+        "VI_VIOWRTCELLSTR",
+        "VI_VIOWRTTTY",
+        "VI_VIOSCROLLUP",
+        "VI_VIOSCROLLDN",
+        "VI_VIOSCROLLLF",
+        "VI_VIOSCROLLRT",
+        "VI_VIOSETANSI",
+        "VI_VIOGETANSI",
+        "VI_VIOPRTSC",
+        "VI_VIOSCRLOCK",
+        "VI_VIOSCRUNLOCK",
+        "VI_VIOSAVREDRAWWAIT",
+        "VI_VIOSAVREDRAWUNDO",
+        "VI_VIOPOPUP",
+        "VI_VIOENDPOPUP",
+        "VI_VIOPRTSCTOGGLE",
+        "VI_VIOMODEWAIT",
+        "VI_VIOMODEUNDO",
+        "VI_VIOGETFONT",
+        "VI_VIOGETCONFIG",
+        "VI_VIOSETCP",
+        "VI_VIOGETCP",
+        "VI_VIOSETFONT",
+        "VI_VIOGETSTATE",
+        "VI_VIOSETSTATE",
+    };
+
     switch( args->Index )
     {
         case VI_VIOGETBUF        : return vioGetBuf( args->Index, &args->VioHandle );
@@ -693,6 +739,9 @@ ULONG __cdecl Entry32Main( vioargs * args )
         case VI_VIOSCROLLRT      : return vioScrollRt( args->Index, &args->VioHandle );
         //case VI_VIOPOPUP         : return vioPopUp( args->Index, &args->VioHandle );
         //case VI_VIOENDPOPUP      : return vioEndPopUp( args->Index, &args->VioHandle );
+        default:
+            dprintf("VIO Index %d(%s) not implemented!\n", args->Index, args->Index > MAX_VIOINDEX ? "Unknown" : apszVioNames[ args->Index ]);
+            break;
     }
 
     return ( ULONG )-1;
