@@ -1165,6 +1165,7 @@ static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
     int x, y;
     int xEnd, yEnd;
     int xNew, yNew;
+    int yEndNew;
     int xCur, yCur;
     int xCurNew, yCurNew;
     int cells;
@@ -1256,6 +1257,10 @@ static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
         }
     }
 
+    yEndNew = yNew;
+    if( xNew > 0 )
+        yEndNew++;
+
     if( ulMode == KSM_NORMAL )
     {
         usBaseLineNew = yCurNew - ( yCur - usBaseLine );
@@ -1272,18 +1277,26 @@ static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
     else
         yNew = 0;
 
+    if( usBaseLineNew + m_vmi.row > KSHELL_SCROLLBACK_LINES + rows )
+    {
+        int d = ( usBaseLineNew + m_vmi.row ) - ( KSHELL_SCROLLBACK_LINES + rows );
+
+        yNew += d;
+        yCurNew -= d;
+        usBaseLineNew -= d;
+    }
+
     lines = KSHELL_SCROLLBACK_LINES + rows;
 
     freeCont( pbCont );
     free( pVioBuf );
 
-    pKShellData->ulBufSize = lines * cols * VIO_CELLSIZE;
-    pVioBuf = malloc( pKShellData->ulBufSize );
+    pVioBuf = calloc( lines * cols, VIO_CELLSIZE );
     pbCont = allocCont( lines );
 
     memcpy( pVioBuf, ( PUSHORT )pVioBufNew + yNew * cols, min( lines, KSHELL_SCROLLBACK_LINES + m_vmi.row ) * cols * VIO_CELLSIZE );
 
-    for( y = 0; y < KSHELL_SCROLLBACK_LINES + rows; y++, yNew++ )
+    for( y = 0; y < KSHELL_SCROLLBACK_LINES + rows && yNew < yEndNew; y++, yNew++ )
     {
         if( isCont( pbContNew, yNew ))
             setCont( pbCont, y );
@@ -1291,6 +1304,8 @@ static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
 
     freeCont( pbContNew );
     free( pVioBufNew );
+
+    pKShellData->ulBufSize = lines * cols * VIO_CELLSIZE;
 
     if( ulMode == KSM_NORMAL )
     {
