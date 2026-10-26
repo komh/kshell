@@ -413,11 +413,14 @@ static VOID setCursor( HWND hwnd, BOOL fCreate )
         USHORT usCellHeight = m_vmi.vres / m_vmi.row;
         USHORT usStart = m_lCharHeight * ( pKShellData->ci.yStart + 1 ) / usCellHeight;
         USHORT usEnd = m_lCharHeight * ( pKShellData->ci.cEnd + 1 ) / usCellHeight;
+        int x = pKShellData->x % m_vmi.col;
+        int y = pKShellData->y + pKShellData->x / m_vmi.col;
 
-        WinCreateCursor( hwnd, X_Vio2Win( pKShellData->x ),
-                               ( m_vmi.row - pKShellData->y - 1 ) * m_lCharHeight +
+
+        WinCreateCursor( hwnd, X_Vio2Win( x ),
+                               ( m_vmi.row - y - 1 ) * m_lCharHeight +
                                ( m_lCharHeight - usEnd ),
-                               GetCharWidth( pKShellData->x ),
+                               GetCharWidth( x ),
                                usEnd - usStart + 1,
                                CURSOR_FLASH,
                                NULL );
@@ -1184,6 +1187,9 @@ static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
     xCur = pKShellData->x;
     yCur = pKShellData->usBaseLineOfVioBuf + pKShellData->y;
 
+    xCurNew = -1;
+    yCurNew = -1;
+
     if( ulMode == KSM_NORMAL )
     {
         usBaseLine = pKShellData->usBaseLineOfVioBuf;
@@ -1215,9 +1221,10 @@ static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
             cells = min( xEnd - x, cols - xNew );
             memcpy( pusNew, pus, cells * VIO_CELLSIZE );
 
-            if( ulMode == KSM_NORMAL && y == yCur && xCur >= x && xCur <= x + cells )
+
+            if( ulMode == KSM_NORMAL && y == yCur && yCurNew == -1)
             {
-                xCurNew = xCur - x + xNew;
+                xCurNew = xCur - x;
                 yCurNew = yNew;
             }
 
