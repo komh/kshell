@@ -106,6 +106,8 @@ static TID      m_tidPipeThread = 0;
 static LONG     m_lFt2LibLoadState = STATE_UNKNOWN;
 static BOOL     m_fUseFt2Lib = FALSE;
 
+static PFNWP    m_pfnOldFrameWndProc = NULL;
+
 PFNENABLEFONTENGINE     ksEnableFontEngine;
 PFNSETCOLOR             ksSetColor;
 PFNSETBACKCOLOR         ksSetBackColor;
@@ -153,6 +155,7 @@ static VOID copyToClipbrd( HWND hwnd, BOOL fAll );
 
 static VOID setFontMode( VOID );
 
+static MRESULT EXPENTRY frameWndProc( HWND, ULONG, MPARAM, MPARAM );
 static MRESULT EXPENTRY windowProc( HWND, ULONG, MPARAM, MPARAM );
 
 int main( int argc, char *argv[])
@@ -244,6 +247,8 @@ int main( int argc, char *argv[])
                 &hwndClient                 // client window handle
                 );
 
+    m_pfnOldFrameWndProc = WinSubclassWindow( hwndFrame, frameWndProc );
+
     // assume not failing
     initPipeThreadForVioSub( hwndClient );
 
@@ -260,6 +265,8 @@ int main( int argc, char *argv[])
 
     // Deregister the Unicode clipboard format
     WinDeleteAtom( hSATbl, m_cfUnicode );
+
+    WinSubclassWindow( hwndFrame, m_pfnOldFrameWndProc );
 
     WinDestroyWindow( hwndFrame );
 
@@ -1292,6 +1299,64 @@ static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
         pKShellData->pScrollBackBuf = pVioBuf;
         pKShellData->pbScrollBackCont = pbCont;
     }
+}
+
+MRESULT EXPENTRY frameWndProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
+{
+    switch( msg )
+    {
+        case WM_TRACKFRAME:
+            WinSetWindowULong( hwnd, QWL_USER, SHORT1FROMMP( mp1 ));
+            break;
+
+        case WM_ADJUSTWINDOWPOS:
+        {
+            PSWP pswp = PVOIDFROMMP( mp1 );
+
+            if( pswp->fl & SWP_SIZE )
+            {
+                RECTL rcl;
+                LONG cx, cy;
+                ULONG fs = WinQueryWindowULong( hwnd, QWL_USER );
+
+                rcl.xLeft = pswp->x;
+                rcl.yBottom = pswp->y;
+                rcl.xRight = pswp->x + pswp->cx;
+                rcl.yTop = pswp->y + pswp->cy;
+                WinCalcFrameRect( hwnd, &rcl, TRUE );
+
+                cx = rcl.xRight - rcl.xLeft;
+                cy = rcl.yTop - rcl.yBottom;
+
+                cx = ( cx / m_fat.lAveCharWidth ) * m_fat.lAveCharWidth;
+                cy = ( cy / m_lCharHeight ) * m_lCharHeight;
+
+                if( fs & TF_LEFT )
+                    rcl.xLeft = rcl.xRight - cx;
+                else
+                    rcl.xRight = rcl.xLeft + cx;
+
+                if( fs & TF_BOTTOM )
+                    rcl.yBottom = rcl.yTop - cy;
+                else
+                    rcl.yTop = rcl.yBottom + cy;
+
+                WinCalcFrameRect( hwnd, &rcl, FALSE );
+
+                if( fs & ( TF_LEFT | TF_BOTTOM ))
+                {
+                    pswp->fl |= SWP_MOVE;
+                    pswp->x = rcl.xLeft;
+                    pswp->y = rcl.yBottom;
+                }
+                pswp->cx = rcl.xRight - rcl.xLeft;
+                pswp->cy = rcl.yTop - rcl.yBottom;
+            }
+            break;
+        }
+    }
+
+    return m_pfnOldFrameWndProc( hwnd, msg, mp1, mp2 );
 }
 
 MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
