@@ -1523,6 +1523,64 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 return MRFROMLONG( TRUE );
             }
 
+            // scroll-back keys: Ctrl+Shift+Up, Down, PgUp, PgDn
+            if(( fsFlags & ( KC_ALT | KC_CTRL | KC_SHIFT )) == ( KC_CTRL | KC_SHIFT ) &&
+               ( fsFlags & ( KC_VIRTUALKEY | KC_SCANCODE )))
+            {
+                USHORT usCmd = 0;
+
+                // workaround for some keyboards which do not recognize PgUp/PgDn as virtual keys
+                if( fsFlags & KC_SCANCODE )
+                {
+                    switch( CHAR4FROMMP( mp1 ))
+                    {
+                        case 0x49:  // PAD PgUp
+                        case 0x62:  // PgUp
+                            fsFlags |= KC_VIRTUALKEY;
+                            usVk = VK_PAGEUP;
+                            break;
+
+                        case 0x51:  // PAD PgDn
+                        case 0x67:  // PgDn
+                        case 0x95:  // DBCS IME: Alt + PgDn, Ctrl + Shift + PgDn
+                        case 0x96:  // DBCS IME: Shift + PgDn
+                            fsFlags |= KC_VIRTUALKEY;
+                            usVk = VK_PAGEDOWN;
+                            break;
+                    }
+                }
+
+                if( fsFlags & KC_VIRTUALKEY )
+                {
+                    switch( usVk )
+                    {
+                        case VK_UP:
+                            usCmd = SB_LINEUP;
+                            break;
+
+                        case VK_DOWN:
+                            usCmd = SB_LINEDOWN;
+                            break;
+
+                        case VK_PAGEUP:
+                            usCmd = SB_PAGEUP;
+                            break;
+
+                        case VK_PAGEDOWN:
+                            usCmd = SB_PAGEDOWN;
+                            break;
+                    }
+                }
+
+                if( usCmd != 0 )
+                {
+                    if( !( fsFlags & KC_KEYUP ))
+                        WinPostMsg( hwnd, WM_VSCROLL, MPFROMLONG( FID_VERTSCROLL ), MPFROM2SHORT( 0, usCmd ));
+
+                    return MRFROMLONG( TRUE );
+                }
+            }
+
             if(( fsFlags & KC_VIRTUALKEY ) &&
                ( usVk >= 0x80 ) &&              // 0x80 for VK_DBE_FIRST
                ( usVk <= 0xFF ))                // 0xFF for VK_DBE_LAST
