@@ -2330,6 +2330,13 @@ static VOID vioGetCurPos( HWND hwnd, PUSHORT pusRow, PUSHORT pusCol )
     *pusCol = pKShellData->x;
 }
 
+static VOID vioGetCurType( HWND hwnd, PVIOCURSORINFO pvci )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    memcpy( pvci, &pKShellData->ci, sizeof( VIOCURSORINFO ));
+}
+
 static VOID vioGetMode( HWND hwnd, PVIOMODEINFO pvmi )
 {
     memcpy( pvmi, &m_vmi, sizeof( VIOMODEINFO ));
@@ -2383,7 +2390,7 @@ static VOID vioSetCurType( HWND hwnd, PVIOCURSORINFO pvci )
     USHORT usCellHeight = m_vmi.vres / m_vmi.row;
 
     if(( SHORT )pvci->yStart < 0 )
-    pvci->yStart = ( usCellHeight * ( -( SHORT )pvci->yStart ) + 99 ) / 100 - 1;
+        pvci->yStart = ( usCellHeight * ( -( SHORT )pvci->yStart ) + 99 ) / 100 - 1;
 
     if(( SHORT )pvci->cEnd < 0 )
         pvci->cEnd = ( usCellHeight * ( -( SHORT )pvci->cEnd ) + 99 ) / 100 - 1;
@@ -3283,6 +3290,19 @@ static VOID pipeThread( void *arg )
 
                 DosWrite( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
                 DosWrite( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
+
+                // Read ACK
+                DosRead( m_hpipeVioSub, &cbActual, sizeof( USHORT ), &cbActual );
+                break;
+            }
+
+            case VI_VIOGETCURTYPE :
+            {
+                VIOCURSORINFO vci;
+
+                vioGetCurType( hwnd, &vci );
+
+                DosWrite( m_hpipeVioSub, &vci, sizeof( VIOCURSORINFO ), &cbActual );
 
                 // Read ACK
                 DosRead( m_hpipeVioSub, &cbActual, sizeof( USHORT ), &cbActual );
