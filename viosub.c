@@ -655,6 +655,59 @@ static ULONG vioScrollRt( USHORT usIndex, PVOID pargs )
     return 0;
 }
 
+#pragma pack( 2 )
+typedef struct tagVIOSETANSIPARAM
+{
+    HVIO            hvio;
+    USHORT          fAnsi;
+} VIOSETANSIPARAM, *PVIOSETANSIPARAM;
+#pragma pack()
+
+static ULONG vioSetAnsi( USHORT usIndex, PVOID pargs )
+{
+    PVIOSETANSIPARAM p = pargs;
+
+    HPIPE   hpipe;
+    ULONG   cbActual;
+
+    pipeOpen( &hpipe );
+
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+    DosWrite( hpipe, &p->fAnsi, sizeof( USHORT ), &cbActual );
+
+    pipeClose( hpipe );
+
+    return 0;
+}
+
+#pragma pack( 2 )
+typedef struct tagVIOGETANSIPARAM
+{
+    HVIO            hvio;
+    USHORT * _Seg16 pfAnsi;
+} VIOGETANSIPARAM, *PVIOGETANSIPARAM;
+#pragma pack()
+
+static ULONG vioGetAnsi( USHORT usIndex, PVOID pargs )
+{
+    PVIOGETANSIPARAM p = pargs;
+
+    HPIPE   hpipe;
+    ULONG   cbActual;
+
+    pipeOpen( &hpipe );
+
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+
+    DosRead( hpipe, p->pfAnsi, sizeof( USHORT ), &cbActual );
+
+    // Send ACK
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+
+    pipeClose( hpipe );
+
+    return 0;
+}
 
 #pragma pack( 2 )
 typedef struct vioargs {
@@ -737,6 +790,8 @@ ULONG __cdecl Entry32Main( vioargs * args )
         case VI_VIOSCROLLDN      : return vioScrollDn( args->Index, &args->VioHandle );
         case VI_VIOSCROLLLF      : return vioScrollLf( args->Index, &args->VioHandle );
         case VI_VIOSCROLLRT      : return vioScrollRt( args->Index, &args->VioHandle );
+        case VI_VIOSETANSI       : return vioSetAnsi( args->Index, &args->VioHandle );
+        case VI_VIOGETANSI       : return vioGetAnsi( args->Index, &args->VioHandle );
         //case VI_VIOPOPUP         : return vioPopUp( args->Index, &args->VioHandle );
         //case VI_VIOENDPOPUP      : return vioEndPopUp( args->Index, &args->VioHandle );
         default:

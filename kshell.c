@@ -362,6 +362,7 @@ typedef struct tagKSHELLDATA
     USHORT  usSavedX;
     USHORT  usSavedY;
     BOOL    fInitFrame;
+    BOOL    fAnsiEnabled;
 } KSHELLDATA, *PKSHELLDATA;
 
 #define getPtrOfUpdateBuf( pKShellData ) \
@@ -1433,6 +1434,7 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             pKShellData->lBgColor = 0;
             pKShellData->usSavedX = 0;
             pKShellData->usSavedY = 0;
+            pKShellData->fAnsiEnabled = TRUE;
 
             pKShellData->pbCont = allocCont( KSHELL_SCROLLBACK_LINES + m_vmi.row );
 
@@ -2900,6 +2902,20 @@ static VOID vioScrollRt( HWND hwnd, USHORT usTopRow, USHORT usLeftCol, USHORT us
 
 }
 
+static void vioSetAnsi( HWND hwnd, USHORT fAnsi )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    pKShellData->fAnsiEnabled = fAnsi;
+}
+
+static void vioGetAnsi( HWND hwnd, USHORT *pfAnsi )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    *pfAnsi = pKShellData->fAnsiEnabled;
+}
+
 #define MAKECELL( ch, pksd ) MAKEUSHORT(( ch ), ( pksd )->lFgColor | (( pksd )->lBgColor << 4 ))
 
 static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
@@ -2928,7 +2944,7 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
     y = pKShellData->y;
     while( usLen > 0 )
     {
-        if( pKShellData->fESC )
+        if( pKShellData->fAnsiEnabled && pKShellData->fESC )
         {
             if( !pKShellData->fCSI )
             {
@@ -3138,7 +3154,10 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
                 case '\r':  // Carriage return
                 case '\n':  // Line feed
                 case '\x1b':// ESC
-                    chControl = *pch;
+                    if( pKShellData->fAnsiEnabled || *pch != '\x1b')
+                        chControl = *pch;
+                    else
+                        *pBuf = MAKECELL( *pch, pKShellData );
                     break;
 
                 case '\t':  // Horizontal tab
@@ -3534,6 +3553,30 @@ static VOID pipeThread( void *arg )
                 vioScrollRt( hwnd, usTopRow, usLeftCol, usBottomRow, usRightCol, usCols, usCell );
                 break;
             }
+
+            case VI_VIOSETANSI :
+            {
+                USHORT fAnsi;
+
+                DosRead( m_hpipeVioSub, &fAnsi, sizeof( fAnsi ), &cbActual );
+
+                vioSetAnsi( hwnd, fAnsi );
+                break;
+            }
+
+            case VI_VIOGETANSI:
+            {
+                USHORT fAnsi;
+
+                vioGetAnsi( hwnd, &fAnsi );
+
+                DosWrite( m_hpipeVioSub, &fAnsi, sizeof( fAnsi ), &cbActual );
+
+                // Read ACK
+                DosRead( m_hpipeVioSub, &cbActual, sizeof( cbActual ), &cbActual );
+                break;
+            }
+
             //case VI_VIOPOPUP :
             //case VI_VIOENDPOPUP :
 
