@@ -2437,6 +2437,61 @@ static VOID vioSetMode( HWND hwnd, PVIOMODEINFO pvmi )
     WinPostMsg( hwnd, KSHELLM_INITFRAME, 0, 0 );
 }
 
+static VOID vioReadCharStr( HWND hwnd, PCH pchChar, PUSHORT pusLen, USHORT usRow, USHORT usCol )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PUSHORT pBuf;
+    USHORT  usLen;
+    INT     x, y;
+
+    usLen = *pusLen;
+    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
+    for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
+    {
+        for( x = usCol; ( x < m_vmi.col ) && ( usLen > 0 ); x++, usLen-- )
+        {
+           *pchChar = LOUSHORT( *pBuf++ );
+           if( *pchChar == 0 )
+               *pchChar = 0x20;
+
+           pchChar++;
+        }
+
+        usCol = 0;
+    }
+
+    *pusLen -= usLen;
+}
+
+static VOID vioReadCellStr( HWND hwnd, PUSHORT pusCell, PUSHORT pusLen, USHORT usRow, USHORT usCol )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PUSHORT pBuf;
+    USHORT  usLen;
+    INT     x, y;
+
+    usLen = *pusLen / VIO_CELLSIZE;
+    *pusLen = usLen * VIO_CELLSIZE;
+    pBuf = ( PUSHORT )getPtrOfVioBuf( pKShellData ) + ( usRow * m_vmi.col ) + usCol;
+    for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
+    {
+        for( x = usCol; ( x < m_vmi.col ) && ( usLen > 0 ); x++, usLen-- )
+        {
+           *pusCell = *pBuf++;
+           if( LOUSHORT( *pusCell ) == 0 )
+               *pusCell = MAKEUSHORT( 0x20, HIUSHORT( *pusCell ));
+
+           pusCell++;
+        }
+
+        usCol = 0;
+    }
+
+    *pusLen -= usLen * VIO_CELLSIZE;
+}
+
 static VOID vioWrtNChar( HWND hwnd, CHAR ch, USHORT usTimes, USHORT usRow, USHORT usCol )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
@@ -3364,6 +3419,58 @@ static VOID pipeThread( void *arg )
                 DosRead( m_hpipeVioSub, &vmi, sizeof( VIOMODEINFO ), &cbActual );
 
                 vioSetMode( hwnd, &vmi );
+                break;
+            }
+
+            case VI_VIOREADCHARSTR :
+            {
+                USHORT  usCol;
+                USHORT  usRow;
+                USHORT  usLen;
+                PCH     pchChar;
+
+                DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usLen, sizeof( USHORT ), &cbActual );
+
+                pchChar = malloc( usLen );
+
+                vioReadCharStr( hwnd, pchChar, &usLen, usRow, usCol );
+
+                DosWrite( m_hpipeVioSub, &usLen, sizeof( USHORT ), &cbActual );
+                DosWrite( m_hpipeVioSub, pchChar, usLen, &cbActual );
+
+                // Read ACK
+                DosRead( m_hpipeVioSub, &cbActual, sizeof( USHORT ), &cbActual );
+
+                free( pchChar );
+
+                break;
+            }
+
+            case VI_VIOREADCELLSTR :
+            {
+                USHORT  usCol;
+                USHORT  usRow;
+                USHORT  usLen;
+                PUSHORT pusCell;
+
+                DosRead( m_hpipeVioSub, &usCol, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usRow, sizeof( USHORT ), &cbActual );
+                DosRead( m_hpipeVioSub, &usLen, sizeof( USHORT ), &cbActual );
+
+                pusCell = malloc( usLen );
+
+                vioReadCellStr( hwnd, pusCell, &usLen, usRow, usCol );
+
+                DosWrite( m_hpipeVioSub, &usLen, sizeof( USHORT ), &cbActual );
+                DosWrite( m_hpipeVioSub, pusCell, usLen, &cbActual );
+
+                // Read ACK
+                DosRead( m_hpipeVioSub, &cbActual, sizeof( USHORT ), &cbActual );
+
+                free( pusCell );
+
                 break;
             }
 

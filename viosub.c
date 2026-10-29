@@ -330,6 +330,78 @@ static ULONG vioSetMode( USHORT usIndex, PVOID pargs )
 }
 
 #pragma pack( 2 )
+typedef struct tagVIOREADCHARSTR
+{
+    HVIO            hvio;
+    USHORT          usCol;
+    USHORT          usRow;
+    USHORT * _Seg16 pusLen;
+    CHAR   * _Seg16 pchCharStr;
+} VIOREADCHARSTRPARAM, *PVIOREADCHARSTRPARAM;
+#pragma pack()
+
+static ULONG vioReadCharStr( USHORT usIndex, PVOID pargs )
+{
+    PVIOREADCHARSTRPARAM p = pargs;
+
+    HPIPE   hpipe;
+    ULONG   cbActual;
+
+    pipeOpen( &hpipe );
+
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+    DosWrite( hpipe, &p->usCol, sizeof( USHORT ), &cbActual );
+    DosWrite( hpipe, &p->usRow, sizeof( USHORT ), &cbActual );
+    DosWrite( hpipe, p->pusLen, sizeof( USHORT ), &cbActual );
+
+    DosRead( hpipe, p->pusLen, sizeof( USHORT ), &cbActual );
+    DosRead( hpipe, p->pchCharStr, *p->pusLen, &cbActual );
+
+    // Send ACK
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+
+    pipeClose( hpipe );
+
+    return 0;
+}
+
+#pragma pack( 2 )
+typedef struct tagVIOREADCELLSTR
+{
+    HVIO            hvio;
+    USHORT          usCol;
+    USHORT          usRow;
+    USHORT * _Seg16 pusLen;
+    CHAR   * _Seg16 pchCellStr;
+} VIOREADCELLSTRPARAM, *PVIOREADCELLSTRPARAM;
+#pragma pack()
+
+static ULONG vioReadCellStr( USHORT usIndex, PVOID pargs )
+{
+    PVIOREADCELLSTRPARAM p = pargs;
+
+    HPIPE   hpipe;
+    ULONG   cbActual;
+
+    pipeOpen( &hpipe );
+
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+    DosWrite( hpipe, &p->usCol, sizeof( USHORT ), &cbActual );
+    DosWrite( hpipe, &p->usRow, sizeof( USHORT ), &cbActual );
+    DosWrite( hpipe, p->pusLen, sizeof( USHORT ), &cbActual );
+
+    DosRead( hpipe, p->pusLen, sizeof( USHORT ), &cbActual );
+    DosRead( hpipe, p->pchCellStr, *p->pusLen, &cbActual );
+
+    // Send ACK
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+
+    pipeClose( hpipe );
+
+    return 0;
+}
+
+#pragma pack( 2 )
 typedef struct tagVIOWRTNCHARPARAM
 {
     HVIO            hvio;
@@ -809,6 +881,8 @@ ULONG __cdecl Entry32Main( vioargs * args )
         case VI_VIOSETCURPOS     : return vioSetCurPos( args->Index, &args->VioHandle);
         case VI_VIOSETCURTYPE    : return vioSetCurType( args->Index, &args->VioHandle );
         case VI_VIOSETMODE       : return vioSetMode( args->Index, &args->VioHandle );
+        case VI_VIOREADCHARSTR   : return vioReadCharStr( args->Index, &args->VioHandle );
+        case VI_VIOREADCELLSTR   : return vioReadCellStr( args->Index, &args->VioHandle );
         case VI_VIOWRTNCHAR      : return vioWrtNChar( args->Index, &args->VioHandle );
         case VI_VIOWRTNATTR      : return vioWrtNAttr( args->Index, &args->VioHandle );
         case VI_VIOWRTNCELL      : return vioWrtNCell( args->Index, &args->VioHandle );
