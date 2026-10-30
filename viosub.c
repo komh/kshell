@@ -125,8 +125,28 @@ static ULONG vioGetBuf( USHORT usIndex, PVOID pargs )
 {
     PVIOGETBUFPARAM p = pargs;
 
-    m_LVBPtr = ( PCH )*( PVOID16 * )p->pulLVBPtr;
-    m_LVBLen = *p->pusLen;
+    HPIPE   hpipe;
+    ULONG   cbActual;
+
+    pipeOpen( &hpipe );
+
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+
+    if( m_LVBPtr != NULL )
+    {
+        DosFreeMem( m_LVBPtr );
+        m_LVBPtr = NULL;
+    }
+
+    DosRead( hpipe, &m_LVBPtr, sizeof( PVOID ), &cbActual );
+    DosRead( hpipe, &m_LVBLen, sizeof( USHORT ), &cbActual );
+
+    DosGetSharedMem( m_LVBPtr, fPERM );
+    *( PVOID16 * _Seg16 )p->pulLVBPtr = m_LVBPtr;
+    *p->pusLen = m_LVBLen;
+
+    // Send ACK
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
 
     return 0;
 }
@@ -236,26 +256,22 @@ static ULONG vioShowBuf( USHORT usIndex, PVOID pargs )
     HPIPE   hpipe;
     ULONG   cbActual;
 
-    if( m_LVBPtr )
-    {
-        USHORT  usStart = p->usOfs & -2;
-        USHORT  usEnd = ( p->usOfs + p->usLen + 1 ) & -2;
-        USHORT  usLen;
+    USHORT  usStart = p->usOfs & -2;
+    USHORT  usEnd = ( p->usOfs + p->usLen + 1 ) & -2;
+    USHORT  usLen;
 
-        if( usEnd > m_LVBLen )
-            usEnd = m_LVBLen;
+    if( usEnd > m_LVBLen )
+        usEnd = m_LVBLen;
 
-        usLen = usEnd - usStart;
+    usLen = usEnd - usStart;
 
-        pipeOpen( &hpipe );
+    pipeOpen( &hpipe );
 
-        DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
-        DosWrite( hpipe, &usStart, sizeof( USHORT ), &cbActual );
-        DosWrite( hpipe, &usLen, sizeof( USHORT ), &cbActual );
-        DosWrite( hpipe, m_LVBPtr + usStart, usLen, &cbActual );
+    DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
+    DosWrite( hpipe, &usStart, sizeof( USHORT ), &cbActual );
+    DosWrite( hpipe, &usLen, sizeof( USHORT ), &cbActual );
 
-        pipeClose( hpipe );
-    }
+    pipeClose( hpipe );
 
     return 0;
 }
@@ -922,6 +938,14 @@ unsigned APIENTRY LibMain( unsigned hmod, unsigned termination )
 
         strcpy( m_szPipeName, PIPE_KSHELL_VIOSUB_BASE );
         _ultoa( m_ulSGID, m_szPipeName + strlen( m_szPipeName ), 16 );
+    }
+    else
+    {
+        if( m_LVBPtr != NULL )
+        {
+            DosFreeMem( m_LVBPtr );
+            m_LVBPtr = NULL;
+        }
     }
 
     return 1;

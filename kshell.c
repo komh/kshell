@@ -370,6 +370,8 @@ typedef struct tagKSHELLDATA
     USHORT  usSavedY;
     BOOL    fInitFrame;
     BOOL    fAnsiEnabled;
+    PVOID   pLVB;
+    USHORT  usLVBLen;
 } KSHELLDATA, *PKSHELLDATA;
 
 #define getPtrOfUpdateBuf( pKShellData ) \
@@ -1451,6 +1453,7 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
 
         case WM_DESTROY :
         {
+            DosFreeMem( pKShellData->pLVB );
             freeCont( pKShellData->pbCont );
             free( pKShellData->pVioBuf );
             free( pKShellData );
@@ -2329,6 +2332,23 @@ VOID waitVioDmn( VOID )
 #define isFullRect( tr, lc, br, rc ) ((( tr ) == 0 ) && (( lc ) == 0 ) && \
                                       (( br ) == m_vmi.row - 1 ) && (( rc ) == m_vmi.col -1 ))
 
+static VOID vioGetBuf( HWND hwnd, PPVOID LVBPtr, PUSHORT pusLen )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    if( pKShellData->pLVB == NULL || pKShellData->usLVBLen != m_vmi.row * m_vmi.col * VIO_CELLSIZE )
+    {
+        DosFreeMem( pKShellData->pLVB );
+        pKShellData->pLVB = NULL;
+
+        pKShellData->usLVBLen = m_vmi.row * m_vmi.col * VIO_CELLSIZE;
+        DosAllocSharedMem( &pKShellData->pLVB, NULL, pKShellData->usLVBLen, fALLOCSHR );
+    }
+
+    *LVBPtr = pKShellData->pLVB;
+    *pusLen = pKShellData->usLVBLen;
+}
+
 static VOID vioGetCurPos( HWND hwnd, PUSHORT pusRow, PUSHORT pusCol )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
@@ -2364,6 +2384,8 @@ static VOID vioShowBuf( HWND hwnd, USHORT usOfs, USHORT usLen )
         usLen /= VIO_CELLSIZE;
         usRow = usOfs / m_vmi.col;
         usCol = usOfs % m_vmi.col;
+
+        memcpy(( PUSHORT )getPtrOfVioBuf( pKShellData ) + usOfs, ( PUSHORT )pKShellData->pLVB + usOfs, usLen * VIO_CELLSIZE );
 
         for( y = usRow; ( y < m_vmi.row ) && ( usLen > 0 ); y++ )
         {
@@ -3343,6 +3365,21 @@ static VOID pipeThread( void *arg )
 
         switch( usIndex )
         {
+            case VI_VIOGETBUF :
+            {
+                PVOID  LVBPtr;
+                USHORT LVBLen;
+
+                vioGetBuf( hwnd, &LVBPtr, &LVBLen );
+
+                DosWrite( m_hpipeVioSub, &LVBPtr, sizeof( PVOID ), &cbActual );
+                DosWrite( m_hpipeVioSub, &LVBLen, sizeof( USHORT ), &cbActual );
+
+                // Read ACK
+                DosRead( m_hpipeVioSub, &cbActual, sizeof( USHORT ), &cbActual );
+                break;
+            }
+
             case VI_VIOGETCURPOS :
             {
                 USHORT usCol;
@@ -3391,7 +3428,6 @@ static VOID pipeThread( void *arg )
 
                 DosRead( m_hpipeVioSub, &usOfs, sizeof( USHORT ), &cbActual );
                 DosRead( m_hpipeVioSub, &usLen, sizeof( USHORT ), &cbActual );
-                DosRead( m_hpipeVioSub, ( PCHAR )getPtrOfVioBuf( pKShellData ) + usOfs, usLen, &cbActual );
 
                 vioShowBuf( hwnd, usOfs, usLen );
                 break;
