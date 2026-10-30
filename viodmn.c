@@ -913,10 +913,13 @@ void makeKeyEvent( void )
     }
     else
     {
-        keyPacket.cp.chChar = LOUCHAR( usChar );
+        keyPacket.cp.chChar = FKC_CHAR( fsFlags ) ? LOUCHAR( usChar ) : 0x00;
 
         if( FKC_VIRT( fsFlags ) && ( usVk == VK_BACKTAB ))
             keyPacket.cp.chChar = 0;
+
+        if( FKC_VIRT( fsFlags ) && usVk == VK_ESC )
+            keyPacket.cp.chChar = 0x1b;
 
         keyPacket.cp.chScan = m_abPMScanToVio[ uchScan ][ 0 ];
         if( CAS_SHIFT( fsFlags ))
