@@ -345,6 +345,7 @@ static ULONG vioSetMode( USHORT usIndex, PVOID pargs )
 
     pipeOpen( &hpipe );
 
+    // TODO: Check the range of row and col
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, p->pvmi, sizeof( VIOMODEINFO ), &cbActual );
 

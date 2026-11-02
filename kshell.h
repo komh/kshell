@@ -40,5 +40,6 @@
 #define PM_SC_RALT      0x5E
 
 #define KSHELLM_INITFRAME   ( WM_USER + 1 )
+#define KSHELLM_SETMODE     ( WM_USER + 2 )
 
 #endif

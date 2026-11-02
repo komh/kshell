@@ -2027,6 +2027,26 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             initFrame( WinQueryWindow( hwnd, QW_PARENT ));
             updateWindow( hwnd, NULL );
             return 0;
+
+        case KSHELLM_SETMODE :
+        {
+            USHORT usRows = SHORT1FROMMP( mp1 );
+            USHORT usCols = SHORT1FROMMP( mp2);
+            HWND   hwndFrame = WinQueryWindow( hwnd, QW_PARENT );
+            RECTL  rcl;
+
+            WinQueryWindowRect( hwnd, &rcl );
+            WinMapWindowPoints( hwnd, HWND_DESKTOP, ( PPOINTL )&rcl, 2 );
+            rcl.xRight = rcl.xLeft + X_Vio2Win( usCols);
+            rcl.yBottom = rcl.yTop - usRows * m_lCharHeight;
+            WinCalcFrameRect( hwndFrame, &rcl, FALSE );
+
+            WinSetWindowPos( hwndFrame, NULLHANDLE,
+                             rcl.xLeft, rcl.yBottom,  rcl.xRight - rcl.xLeft, rcl.yTop - rcl.yBottom,
+                             SWP_MOVE | SWP_SIZE );
+            return 0;
+        }
+
     }
 
     return WinDefWindowProc( hwnd, msg, mp1, mp2 );
@@ -2438,32 +2458,10 @@ static VOID vioSetCurType( HWND hwnd, PVIOCURSORINFO pvci )
 
 static VOID vioSetMode( HWND hwnd, PVIOMODEINFO pvmi )
 {
-    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+    if( m_vmi.row == pvmi->row && m_vmi.col == pvmi->col )
+        return;
 
-    HWND    hwndPopup;
-    PUSHORT pVioBuf;
-    int     cells;
-    int     i;
-
-    free( pKShellData->pVioBuf );
-
-    hwndPopup = pKShellData->hwndPopup;
-    memcpy( &m_vmi, pvmi, sizeof( VIOMODEINFO ));
-
-    memset( pKShellData, 0, sizeof( KSHELLDATA ));
-
-    pKShellData->hwndPopup = hwndPopup;
-
-    pKShellData->ulBufSize = ( KSHELL_SCROLLBACK_LINES + m_vmi.row ) * m_vmi.col * VIO_CELLSIZE;
-
-    pKShellData->pVioBuf = malloc( pKShellData->ulBufSize );
-
-    pVioBuf = pKShellData->pVioBuf;
-    cells = pKShellData->ulBufSize / VIO_CELLSIZE;
-    for( i = 0; i < cells; i++ )
-        *pVioBuf++ = 0x0700;
-
-    WinPostMsg( hwnd, KSHELLM_INITFRAME, 0, 0 );
+    WinPostMsg( hwnd, KSHELLM_SETMODE, MPFROMSHORT( pvmi->row ), MPFROMSHORT( pvmi->col ));
 }
 
 static VOID vioReadCharStr( HWND hwnd, PCH pchChar, PUSHORT pusLen, USHORT usRow, USHORT usCol )
