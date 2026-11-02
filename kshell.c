@@ -56,6 +56,11 @@
 
 static VIOMODEINFO  m_vmi;
 
+#define DEFAULT_SCROLLBACK_LINES    1000
+#define MAX_SCROLLBACK_LINES        10000
+
+static LONG m_lScrollBackLines = DEFAULT_SCROLLBACK_LINES;
+
 #define VIO_CISIZE      ( sizeof( USHORT ) * 2 + sizeof( VIOCURSORINFO ))
 
 #define MAX_CP_NAME     12      // maximum length of a codepage name
@@ -249,6 +254,17 @@ int main( int argc, char *argv[])
             else if( cols > MAX_XCHARS )
                 cols = MAX_XCHARS;
         }
+        else if( strcmp( argv[ i ], "-sblines") == 0 && i + 1 < argc )
+        {
+            int sblines = atoi( argv[ ++i ]);
+
+            if( sblines < 1 )
+                sblines = DEFAULT_SCROLLBACK_LINES;
+            else if( sblines > MAX_SCROLLBACK_LINES )
+                sblines = MAX_SCROLLBACK_LINES;
+
+            m_lScrollBackLines = sblines;
+        }
     }
 
     init();
@@ -380,7 +396,7 @@ static int findXCol( int x )
 #define X_Win2Vio( x ) findXCol( x )
 #define Y_Win2Vio( y ) (( int )( m_vmi.row - (( y ) / m_lCharHeight ) - 1 ))
 
-#define KSHELL_SCROLLBACK_LINES 200
+#define KSHELL_SCROLLBACK_LINES m_lScrollBackLines
 
 #define KSM_NORMAL      0L
 #define KSM_SCROLLBACK  1L
