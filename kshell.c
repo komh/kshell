@@ -173,6 +173,46 @@ static ULONG _System exitHandler( PEXCEPTIONREPORTRECORD p1, PEXCEPTIONREGISTRAT
     return XCPT_CONTINUE_SEARCH;
 }
 
+static char *parseEnvOpt( const char *name, int *pargc, char ***pargv )
+{
+    char *envOpt;
+    int argc;
+    char **argv;
+
+    envOpt = getenv( name );
+    if( envOpt != NULL )
+    {
+        char *p;
+        int i;
+
+        envOpt = strdup( envOpt );
+        argc = 1;
+        for( p = strchr( envOpt, ' '); p != NULL; p = strchr( p + 1, ' '))
+        {
+            argc++;
+            *p = '\0';
+        }
+
+        argv = calloc( sizeof( char * ), argc + *pargc );
+
+        // program name first
+        argv[ 0 ] = ( *pargv )[ 0 ];
+
+        // env opt next
+        for( i = 0, p = envOpt; i < argc; i++, p += strlen( p ) + 1 )
+            argv[ 1 + i ] = p;
+
+        // command line last
+        for( i = 1; i < *pargc; i++ )
+            argv[ argc + i ] = ( *pargv )[ i ];
+
+        *pargc = argc + *pargc;
+        *pargv = argv;
+    }
+
+    return envOpt;
+}
+
 int main( int argc, char *argv[])
 {
     EXCEPTIONREGISTRATIONRECORD xcptRec = { 0, };
@@ -187,6 +227,11 @@ int main( int argc, char *argv[])
     int      cols = 80;
     int      result = 0;
     int      i;
+
+    char *kshellOpt;
+    char **oldArgv = argv;
+
+    kshellOpt = parseEnvOpt("KSHELLOPT", &argc, &argv );
 
     for( i = 1; i < argc; i++ )
     {
@@ -296,6 +341,11 @@ int main( int argc, char *argv[])
 
 main_exit:
     done();
+
+    if( oldArgv != argv )
+        free( argv );
+
+    free( kshellOpt );
 
     return result;
 }
