@@ -93,6 +93,13 @@ static CHAR     m_achXChar[ MAX_XCHARS ];
 static POINTL   m_aptlPos[ MAX_XCHARS + 1 ];
 static LONG     m_alXInc[ MAX_XCHARS ];
 
+#define DEFAULT_ROWS    25
+#define MIN_ROWS        10
+
+#define DEFAULT_COLS    80
+#define MAX_COLS        MAX_XCHARS
+#define MIN_COLS        40
+
 #define X_Vio2Win( xVio ) ( m_aptlPos[ xVio ].x )
 #define GetCharWidth( x ) ( m_alXInc[ x ])
 
@@ -228,8 +235,8 @@ int main( int argc, char *argv[])
     HWND     hwndClient;
     QMSG     qm;
     HATOMTBL hSATbl;        // handle to system atom table
-    int      rows = 25;
-    int      cols = 80;
+    int      rows = DEFAULT_ROWS;
+    int      cols = DEFAULT_COLS;
     int      result = 0;
     int      i;
 
@@ -243,16 +250,16 @@ int main( int argc, char *argv[])
         if( strcmp( argv[ i ], "-rows") == 0 && i + 1 < argc )
         {
             rows = atoi( argv[ ++i ]);
-            if( rows < 1 )
-                rows = 25;
+            if( rows < MIN_ROWS )
+                rows = MIN_ROWS;
         }
         else if( strcmp( argv[ i ], "-cols") == 0 && i + 1 < argc )
         {
             cols = atoi( argv[ ++i ]);
-            if( cols < 1 )
-                cols = 80;
-            else if( cols > MAX_XCHARS )
-                cols = MAX_XCHARS;
+            if( cols < MIN_COLS )
+                cols = MIN_COLS;
+            else if( cols > MAX_COLS )
+                cols = MAX_COLS;
         }
         else if( strcmp( argv[ i ], "-sblines") == 0 && i + 1 < argc )
         {
@@ -1427,6 +1434,7 @@ MRESULT EXPENTRY frameWndProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             {
                 RECTL rcl;
                 LONG cx, cy;
+                LONG rows, cols;
                 ULONG fs = WinQueryWindowULong( hwnd, QWL_USER );
 
                 rcl.xLeft = pswp->x;
@@ -1438,8 +1446,18 @@ MRESULT EXPENTRY frameWndProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 cx = rcl.xRight - rcl.xLeft;
                 cy = rcl.yTop - rcl.yBottom;
 
-                cx = ( cx / m_fat.lAveCharWidth ) * m_fat.lAveCharWidth;
-                cy = ( cy / m_lCharHeight ) * m_lCharHeight;
+                cols = cx / m_fat.lAveCharWidth;
+                if( cols > MAX_COLS )
+                    cols = MAX_COLS;
+                else if( cols < MIN_COLS )
+                    cols = MIN_COLS;
+
+                rows = cy / m_lCharHeight;
+                if( rows < MIN_ROWS )
+                    rows = MIN_ROWS;
+
+                cx = cols * m_fat.lAveCharWidth;
+                cy = rows * m_lCharHeight;
 
                 if( fs & TF_LEFT )
                     rcl.xLeft = rcl.xRight - cx;
@@ -2075,6 +2093,14 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             if( pKShellData->fInitFrame || ( rows == m_vmi.row && cols == m_vmi.col ))
                 return 0;
 
+            if( rows < MIN_ROWS )
+                rows = MIN_ROWS;
+
+            if( cols > MAX_COLS )
+                cols = MAX_COLS;
+            else if( cols < MIN_COLS )
+                cols = MIN_COLS;
+
             if( pKShellData->ulKShellMode == KSM_SCROLLBACK )
                 resize( hwnd, KSM_SCROLLBACK, rows, cols );
 
@@ -2100,6 +2126,14 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             USHORT usCols = SHORT1FROMMP( mp2);
             HWND   hwndFrame = WinQueryWindow( hwnd, QW_PARENT );
             RECTL  rcl;
+
+            if( usRows < MIN_ROWS )
+                usRows = MIN_ROWS;
+
+            if( usCols > MAX_COLS )
+                usCols = MAX_COLS;
+            else if( usCols < MIN_COLS )
+                usCols = MIN_COLS;
 
             WinQueryWindowRect( hwnd, &rcl );
             WinMapWindowPoints( hwnd, HWND_DESKTOP, ( PPOINTL )&rcl, 2 );
