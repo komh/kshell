@@ -7,8 +7,7 @@ AS = wasm
 AFLAGS = -zq
 
 CC = wcc386
-#CFLAGS = -zq -wx -we -bm
-CFLAGS = -zq -wx -bm
+CFLAGS = -zq -wx -we -bm
 
 LINK = wlink
 LFLAGS = option quiet, map

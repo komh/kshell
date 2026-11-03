@@ -1028,7 +1028,7 @@ void packetRead( PKEYPACKET pkp )
     ULONG       cbData;
     BYTE        bPriority;
 
-    DosReadQueue( m_hqPacket, &rd, &cbData, &pKeyPacket, 0, DCWW_WAIT, &bPriority, 0 );
+    DosReadQueue( m_hqPacket, &rd, &cbData, ( PPVOID )&pKeyPacket, 0, DCWW_WAIT, &bPriority, 0 );
 
     memcpy( pkp, pKeyPacket, sizeof( KEYPACKET ));
     free( pKeyPacket );

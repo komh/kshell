@@ -3440,7 +3440,6 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
 static VOID pipeThread( void *arg )
 {
     HWND        hwnd = ( HWND )arg;
-    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
 
     CHAR szSem[ SEM_VIODMN_KSHELL_LEN ];
     HEV  hev = 0;
