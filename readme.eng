@@ -81,10 +81,10 @@ ArcaOS v5.1.0GA.
 7-4. Hot-keys
 -------------
 
-  Ctrl-Up   : Scroll up by a line in scroll-back mode
-  Ctrl-Down : Scroll down by a line in scroll-back mode
-  Ctrl-PgUp : Scroll up by a page in scroll-back mode
-  Ctrl-PgDn : Scroll down by a page in scroll-back mode
+  Ctrl+Shift+Up   : Scroll up by a line in scroll-back mode
+  Ctrl+Shift+Down : Scroll down by a line in scroll-back mode
+  Ctrl+Shift+PgUp : Scroll up by a page in scroll-back mode
+  Ctrl+Shift+PgDn : Scroll down by a page in scroll-back mode
   
 8. Limits/Known bugs
 --------------------
