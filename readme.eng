@@ -1,4 +1,4 @@
-                             KShell v0.8.1
+                             KShell v1.0.0
                             ---------------
                             
 1. Introduction
@@ -12,7 +12,7 @@ on VIO of non-DBCS OS/2 environment.
   
   - OS/2 Warp v4 for Korean with FixPak #15
   
-  - Open Watcom v1.8
+  - Open Watcom v2.0.1
   
 3. Requirement
 --------------
@@ -25,7 +25,7 @@ on VIO of non-DBCS OS/2 environment.
 ------------------
 
   This program is tested on OS/2 Warp v4 for Korean with FixPak #15 and 
-eComStation v1.2MR.
+ArcaOS v5.1.0GA.
 
 5. Features
 -----------
@@ -39,11 +39,13 @@ eComStation v1.2MR.
   
   - Codepages other than primary or secondary codepage can be specified.
   
-  - Scroll-back up to 200 lines is supported.
+  - Scroll-back up to 10000 lines is supported.
   
   - Clipboard(unicode) is supported.
   
   - FT2LIB is supported.
+  
+  - Window size change is supported.
 
 6. Installation
 ---------------
@@ -61,23 +63,43 @@ eComStation v1.2MR.
 
 7-2. Popup Menu
 ---------------
+
   Codepage... : Specify codepage.
   Font...     : Specify font and size.
   Copy        : Copy the contents of marking area to clipboard.
   Copy All    : Copy all the contents of the window to clipboard.
   Paste       : Copy from clipboard to the window.
   Use FT2LIB  : Specify whether to use FT2LIB or not.
+
+7-3. Command line options
+-------------------------
+
+  -rows    : Set width of a window on startup
+  -cols    : Set height of a window on startup
+  -sblines : Set the number of lines for a scroll-back buffer
+  
+7-4. Hot-keys
+-------------
+
+  Ctrl-Up   : Scroll up by a line in scroll-back mode
+  Ctrl-Down : Scroll down by a line in scroll-back mode
+  Ctrl-PgUp : Scroll up by a page in scroll-back mode
+  Ctrl-PgDn : Scroll down by a page in scroll-back mode
   
 8. Limits/Known bugs
 --------------------
 
   - Only support keyboard input and VIO output. So mouse is not supported.
 
-  - Ctrl-S, Ctrl-P, and so on are not supported.
+  - Ctrl-P, and so on are not supported.
   
   - With Q.EXE, Shift-Arrow Keys does not work.
   
   - On FT2LIB mode, width of font can be too wide.
+  
+  - On FT2LIB mode, CPU load is high on startup.
+  
+  - 4OS2 crashes when changing a code page with CHCP command.
   
 9. TODOs...
 -----------
@@ -88,6 +110,21 @@ eComStation v1.2MR.
   
 10. History
 ---------------
+
+  - v1.0.0 ( 2026/11/04 )
+    .viodmn: Support Ctrl-S key combination
+    .kshell: Support -rows, -cols command line options
+    .kshell: Support to resize a window in runtime
+    .kshell: Show a window size in a title bar
+    .kshell: Support hot-keys for scroll-back.
+    .kshell: Support KSHELLOPT env var to specify options
+    .kshell: Support -sblines command line option
+    .kshell: CPU-load is always high on startup. 
+             ( Load FT2LIB only when using FT2LIB ). Fixed.
+    .kshell: VIODMN remains when KShell exit abnormally. Fixed.
+    .viodmn: KEYPAD keys of some keyboards are treated as character keys. 
+             Fixed.
+    .Changed compiler to Open Watcom v2.0.1
 
   - V0.8.1 ( 2012/02/05 )
     .Performance sometimes becomes very poor. Fixed.
@@ -204,15 +241,17 @@ eComStation v1.2MR.
   If you are satisfied with this program and want to donate to me, please visit
 the following URL.
 
-    http://www.ecomstation.co.kr/komh/donate.html
+    http://www.os2.kr/komh/os2factory/
+
+  Or, please click the Ads in the following blog.
+
+    https://lvzuufx.blogspot.com/
 
 15. Contact
 -----------
 
-  e-mail : komh@chollian.net
-  ICQ    : 124861818
-  MSN    : komh@chollian.net
-  IRC    : lvzuufx, #os2 at HANIRC(irc.hanirc.org)
-               
+  Please use a issue tracker of github.
+
+    https://github.com/komh/mplayer-os2/issues
+    
                                                        KO Myung-Hun
-               
