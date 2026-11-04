@@ -850,6 +850,7 @@ typedef struct vioargs {
 
 ULONG __cdecl Entry32Main( vioargs * args )
 {
+#ifdef DEBUG
 #define MAX_VIOINDEX    40
 
     static const char *apszVioNames[ MAX_VIOINDEX + 1 ] = {
@@ -895,6 +896,7 @@ ULONG __cdecl Entry32Main( vioargs * args )
         "VI_VIOGETSTATE",
         "VI_VIOSETSTATE",
     };
+#endif
 
     switch( args->Index )
     {
