@@ -3375,7 +3375,10 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
             usLen--;
 
             if( chControl == '\t')
+            {
+                chControl = 0;
                 continue;
+            }
 
             if( chControl )
                 break;
