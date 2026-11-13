@@ -10,6 +10,7 @@
 #include <string.h>
 #include <time.h>
 #include <process.h>
+#include <alloca.h>
 
 #include <uconv.h>
 
@@ -87,17 +88,13 @@ static ULONG    m_sidVioDmn;
 static BOOL     m_afDBCSLeadByte[ 256 ] = { FALSE, };
 static BOOL     m_fDBCSEnv = FALSE;
 
-#define MAX_XCHARS  132
-
-static CHAR     m_achXChar[ MAX_XCHARS ];
-static POINTL   m_aptlPos[ MAX_XCHARS + 1 ];
-static LONG     m_alXInc[ MAX_XCHARS ];
+static PPOINTL  m_aptlPos;
+static PLONG    m_alXInc;
 
 #define DEFAULT_ROWS    25
 #define MIN_ROWS        10
 
 #define DEFAULT_COLS    80
-#define MAX_COLS        MAX_XCHARS
 #define MIN_COLS        40
 
 #define X_Vio2Win( xVio ) ( m_aptlPos[ xVio ].x )
@@ -145,6 +142,7 @@ static BOOL init( VOID );
 static VOID done( VOID );
 
 static VOID initDBCSEnv( USHORT usCP );
+static VOID calcXInfo( HWND hwnd, LONG lXChars );
 static VOID initFrame( HWND hwndFrame );
 
 #define     isDBCSLeadByte( uch ) ( m_afDBCSLeadByte[( BYTE )( uch )])
@@ -258,8 +256,6 @@ int main( int argc, char *argv[])
             cols = atoi( argv[ ++i ]);
             if( cols < MIN_COLS )
                 cols = MIN_COLS;
-            else if( cols > MAX_COLS )
-                cols = MAX_COLS;
         }
         else if( strcmp( argv[ i ], "-sblines") == 0 && i + 1 < argc )
         {
@@ -320,7 +316,7 @@ int main( int argc, char *argv[])
     );
 
     flFrameFlags = FCF_SYSMENU | FCF_TITLEBAR | FCF_TASKLIST | FCF_SIZEBORDER |
-                   FCF_VERTSCROLL | FCF_ICON;
+                   FCF_VERTSCROLL | FCF_ICON | FCF_MINMAX;
 
     hwndFrame = WinCreateStdWindow(
                 HWND_DESKTOP,               // parent window handle
@@ -555,11 +551,13 @@ static VOID drawCharStringPosAt( HAB hab, PKSHELLDATA pKShellData, HPS hps, USHO
     PCHAR   pch;
     int     xEnd = xStart + count;
     int     x;
-    LONG    alXInc[ MAX_XCHARS ];
+    PLONG   alXInc;
     PLONG   palXInc;
     RECTL   rcl;
     POINTS  ptsStart, ptsEnd;
     RECTL   rclMarking;
+
+    alXInc = alloca( sizeof( *alXInc ) * m_vmi.col );
 
     setAttr( hps, usAttr );
     if( isDBCSEnv())
@@ -630,11 +628,10 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
     int     xEnd, yEnd;
     RECTL   rcl;
 
+    WinQueryWindowRect( hwnd, &rcl );
+
     if( !prcl )
-    {
         prcl = &rcl;
-        WinQueryWindowRect( hwnd, prcl );
-    }
 
     if( WinIsRectEmpty( WinQueryAnchorBlock( hwnd ), prcl ))
         return;
@@ -666,7 +663,30 @@ VOID updateWindow( HWND hwnd, PRECTL prcl )
         USHORT  usAttr;
         USHORT  usLen;
 
+        // clear right margins
+        if( rcl.xRight >= X_Vio2Win( m_vmi.col ))
+        {
+            RECTL rect = rcl;
+
+            rect.xLeft = X_Vio2Win( m_vmi.col );
+            WinFillRect( hps, &rect, CLR_BLACK );
+        }
+
         ptl.y = ( m_vmi.row - yStart - 1 ) * m_lCharHeight + m_lMaxDescender;
+
+        // clear top margins
+        if( yStart < 0 )
+        {
+            RECTL rect = rcl;
+
+            rect.yBottom = ptl.y - m_lMaxDescender;
+            rect.yTop = rect.yBottom + m_lCharHeight ;
+            WinFillRect( hps, &rect, CLR_BLACK );
+
+            yStart++;
+            ptl.y -= m_lCharHeight;
+        }
+
         for( y = yStart; y <= yEnd; y++ )
         {
             xStart1 = xStart;
@@ -1429,6 +1449,13 @@ MRESULT EXPENTRY frameWndProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
         case WM_ADJUSTWINDOWPOS:
         {
             PSWP pswp = PVOIDFROMMP( mp1 );
+            MRESULT mr = 0;
+
+            if( pswp->fl & ( SWP_MAXIMIZE | SWP_MINIMIZE ))
+                break;
+
+            if( pswp->fl & SWP_RESTORE )
+                mr = m_pfnOldFrameWndProc( hwnd, msg, mp1, mp2 );
 
             if( pswp->fl & SWP_SIZE )
             {
@@ -1447,9 +1474,7 @@ MRESULT EXPENTRY frameWndProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 cy = rcl.yTop - rcl.yBottom;
 
                 cols = cx / m_fat.lAveCharWidth;
-                if( cols > MAX_COLS )
-                    cols = MAX_COLS;
-                else if( cols < MIN_COLS )
+                if( cols < MIN_COLS )
                     cols = MIN_COLS;
 
                 rows = cy / m_lCharHeight;
@@ -1480,6 +1505,10 @@ MRESULT EXPENTRY frameWndProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 pswp->cx = rcl.xRight - rcl.xLeft;
                 pswp->cy = rcl.yTop - rcl.yBottom;
             }
+
+            if( pswp->fl & SWP_RESTORE )
+                return mr;
+
             break;
         }
     }
@@ -2061,14 +2090,14 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 if( ptsEndNew.x < 0 )
                     ptsEndNew.x = 0;
 
-                if( ptsEndNew.x >= rcl.xRight )
-                    ptsEndNew.x = rcl.xRight - 1;
+                if( ptsEndNew.x >= X_Vio2Win( m_vmi.col ))
+                    ptsEndNew.x = X_Vio2Win( m_vmi.col ) - 1;
 
                 if( ptsEndNew.y < 0 )
                     ptsEndNew.y = 0;
 
-                if( ptsEndNew.y >= rcl.yTop )
-                    ptsEndNew.y = rcl.yTop - 1;
+                if( ptsEndNew.y >= m_vmi.row * m_lCharHeight )
+                    ptsEndNew.y = m_vmi.row * m_lCharHeight - 1;
 
                 ptsEndNew.x = X_Win2Vio( ptsEndNew.x );
                 ptsEndNew.y = Y_Win2Vio( ptsEndNew.y );
@@ -2087,8 +2116,14 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             LONG rows = SHORT2FROMMP( mp2 ) / m_lCharHeight;
             LONG cols = SHORT1FROMMP( mp2 ) / m_fat.lAveCharWidth;
 
+            SWP swp;
+
             if( pKShellData->ulKShellMode == KSM_MARKING )
                 doneMarkingMode( hwnd );
+
+            WinQueryWindowPos( WinQueryWindow( hwnd, QW_PARENT ), &swp );
+            if( swp.fl & SWP_MINIMIZE )
+                return 0;
 
             if( pKShellData->fInitFrame || ( rows == m_vmi.row && cols == m_vmi.col ))
                 return 0;
@@ -2096,10 +2131,11 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             if( rows < MIN_ROWS )
                 rows = MIN_ROWS;
 
-            if( cols > MAX_COLS )
-                cols = MAX_COLS;
-            else if( cols < MIN_COLS )
+            if( cols < MIN_COLS )
                 cols = MIN_COLS;
+
+            if( cols != m_vmi.col )
+                calcXInfo( hwnd, cols );
 
             if( pKShellData->ulKShellMode == KSM_SCROLLBACK )
                 resize( hwnd, KSM_SCROLLBACK, rows, cols );
@@ -2130,10 +2166,10 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             if( usRows < MIN_ROWS )
                 usRows = MIN_ROWS;
 
-            if( usCols > MAX_COLS )
-                usCols = MAX_COLS;
-            else if( usCols < MIN_COLS )
+            if( usCols < MIN_COLS )
                 usCols = MIN_COLS;
+
+            calcXInfo( hwnd, usCols );
 
             WinQueryWindowRect( hwnd, &rcl );
             WinMapWindowPoints( hwnd, HWND_DESKTOP, ( PPOINTL )&rcl, 2 );
@@ -2218,6 +2254,9 @@ BOOL init( VOID )
 
 VOID done( VOID )
 {
+    free( m_aptlPos );
+    free( m_alXInc );
+
     if( m_lFt2LibLoadState == STATE_LOADED )
         freeFt2Lib();
 
@@ -2251,6 +2290,44 @@ VOID initDBCSEnv( USHORT usCP )
     }
 }
 
+VOID calcXInfo( HWND hwnd, LONG lXChars )
+{
+    HPS         hps;
+    SIZEF       sizef;
+    POINTL      ptlStart = { 0, 0 };
+    FONTMETRICS fm;
+    int         i;
+
+    m_aptlPos = realloc( m_aptlPos, sizeof( *m_aptlPos ) * ( lXChars + 1 ));
+    m_alXInc = realloc( m_alXInc, sizeof( *m_alXInc ) * lXChars );
+
+    hps = ksGetPS( hwnd );
+
+    ksCreateLogFont( hps, NULL, 1L, &m_fat );
+    ksSetCharSet( hps, 1L );
+
+    sizef.cx = (( m_fxPointSize * m_lHoriFontRes / 72 ) + 0x10000L ) & -0x20000L; // nearest even size
+    sizef.cy = m_fxPointSize * m_lVertFontRes / 72;
+
+    ksSetCharBox( hps, &sizef );
+
+    ksQueryCharStringPosAt( hps, &ptlStart, 0, lXChars, m_achXChar, NULL, m_aptlPos );
+
+    // workaround for FT2LIB. First position can be non-zero, maybe 1
+    if( m_fUseFt2Lib && m_lFt2LibLoadState == STATE_LOADED )
+        m_aptlPos[ 0 ].x = 0;
+
+    for( i = 0; i < lXChars; i++ )
+        m_alXInc[ i ] = m_aptlPos[ i + 1 ].x - m_aptlPos[ i ].x;
+
+    ksQueryFontMetrics( hps, sizeof( FONTMETRICS ), &fm );
+
+    m_lCharHeight = fm.lMaxBaselineExt + fm.lExternalLeading;
+    m_lMaxDescender = fm.lMaxDescender;
+
+    ksReleasePS( hps );
+}
+
 static VOID randomizeRect( PRECTL prcl )
 {
     LONG    cxScreen = WinQuerySysValue( HWND_DESKTOP, SV_CXSCREEN );
@@ -2277,12 +2354,8 @@ VOID initFrame( HWND hwndFrame )
     HWND        hwndClient;
     PKSHELLDATA pksd;
     MENUITEM    mi;
-    HPS         hps;
-    SIZEF       sizef;
-    POINTL      ptlStart = { 0, 0 };
-    FONTMETRICS fm;
     RECTL       rcl;
-    int         i;
+    SWP         swp;
 
     if( fInitFirst )
     {
@@ -2317,37 +2390,13 @@ VOID initFrame( HWND hwndFrame )
         WinSendMsg( hwndSysMenu, MM_INSERTITEM, ( MPARAM )&mi, 0 );
 
         WinEnableWindow( WinWindowFromID( hwndFrame, FID_VERTSCROLL ), FALSE );
-
-        memset( m_achXChar, 'k', sizeof( m_achXChar ));
     }
 
     setFontMode();
 
     hwndClient = WinWindowFromID( hwndFrame, FID_CLIENT );
 
-    hps = ksGetPS( hwndClient );
-
-    ksCreateLogFont( hps, NULL, 1L, &m_fat );
-    ksSetCharSet( hps, 1L );
-
-    sizef.cx = (( m_fxPointSize * m_lHoriFontRes / 72 ) + 0x10000L ) & -0x20000L; // nearest even size
-    sizef.cy = m_fxPointSize * m_lVertFontRes / 72;
-
-    ksSetCharBox( hps, &sizef );
-
-    ksQueryCharStringPosAt( hps, &ptlStart, 0, MAX_XCHARS, m_achXChar, NULL, m_aptlPos );
-    // workaround for FT2LIB. First position can be non-zero, maybe 1
-    if( m_fUseFt2Lib && m_lFt2LibLoadState == STATE_LOADED )
-        m_aptlPos[ 0 ].x = 0;
-    for( i = 0; i < MAX_XCHARS; i++ )
-        m_alXInc[ i ] = m_aptlPos[ i + 1 ].x - m_aptlPos[ i ].x;
-
-    ksQueryFontMetrics( hps, sizeof( FONTMETRICS ), &fm );
-
-    m_lCharHeight = fm.lMaxBaselineExt + fm.lExternalLeading;
-    m_lMaxDescender = fm.lMaxDescender;
-
-    ksReleasePS( hps );
+    calcXInfo( hwndClient, m_vmi.col );
 
     WinQueryWindowRect( hwndClient, &rcl );
     WinMapWindowPoints( hwndClient, HWND_DESKTOP, ( PPOINTL )&rcl, 2 );
@@ -2371,15 +2420,33 @@ VOID initFrame( HWND hwndFrame )
     }
 
     pksd = WinQueryWindowPtr( hwndClient, 0 );
-    pksd->fInitFrame = TRUE;
 
-    WinSetWindowPos( hwndFrame, HWND_TOP,
-                     rcl.xLeft, rcl.yBottom,
-                     rcl.xRight - rcl.xLeft,
-                     rcl.yTop - rcl.yBottom,
-                     SWP_SIZE | SWP_MOVE | SWP_ZORDER | SWP_SHOW | SWP_ACTIVATE );
+    WinQueryWindowPos( hwndFrame, &swp );
 
-    pksd->fInitFrame = FALSE;
+    if( swp.fl & SWP_MAXIMIZE )
+    {
+        pksd->fInitFrame = FALSE;
+
+        rcl.xLeft = swp.x;
+        rcl.yBottom = swp.y;
+        rcl.xRight = rcl.xLeft + swp.cx;
+        rcl.yTop = rcl.yBottom + swp.cy;
+        WinCalcFrameRect( hwndFrame, &rcl, TRUE );
+
+        WinSendMsg( hwndClient, WM_SIZE, MPFROM2SHORT( 0, 0 ), MPFROM2SHORT( rcl.xRight - rcl.xLeft, rcl.yTop - rcl.yBottom ));
+    }
+    else
+    {
+        pksd->fInitFrame = TRUE;
+
+        WinSetWindowPos( hwndFrame, HWND_TOP,
+                         rcl.xLeft, rcl.yBottom,
+                         rcl.xRight - rcl.xLeft,
+                         rcl.yTop - rcl.yBottom,
+                         SWP_SIZE | SWP_MOVE | SWP_ZORDER | SWP_SHOW | SWP_ACTIVATE );
+
+        pksd->fInitFrame = FALSE;
+    }
 }
 
 BOOL    callVioDmn( USHORT usMsg )
