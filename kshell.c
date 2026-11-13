@@ -2125,14 +2125,14 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             if( swp.fl & SWP_MINIMIZE )
                 return 0;
 
-            if( pKShellData->fInitFrame || ( rows == m_vmi.row && cols == m_vmi.col ))
-                return 0;
-
             if( rows < MIN_ROWS )
                 rows = MIN_ROWS;
 
             if( cols < MIN_COLS )
                 cols = MIN_COLS;
+
+            if( pKShellData->fInitFrame || ( rows == m_vmi.row && cols == m_vmi.col ))
+                return 0;
 
             if( cols != m_vmi.col )
                 calcXInfo( hwnd, cols );
