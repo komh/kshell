@@ -1358,6 +1358,9 @@ static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
             {
                 if( !isCont( pbCont, y ))
                 {
+                    // copy remaining attrs
+                    memcpy( pusNew + cells, pus + cells, min( cols - xNew - cells, m_vmi.col - x ) * VIO_CELLSIZE );
+
                     xNew = 0;
                     yNew++;
 
