@@ -893,6 +893,12 @@ VOID doneMarkingMode( HWND hwnd )
 {
     PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
 
+    if( pKShellData->fMarking )
+    {
+        WinSetCapture( HWND_DESKTOP, NULLHANDLE );
+        pKShellData->fMarking = FALSE;
+    }
+
     free( pKShellData->pMarkingBuf );
     pKShellData->pMarkingBuf = NULL;
 
