@@ -7,14 +7,14 @@ AS = wasm
 AFLAGS = -zq
 
 CC = wcc386
-CFLAGS = -zq -wx -we -bm
+CFLAGS = -zq -wx -bm
 
 LINK = wlink
 LFLAGS = option quiet, map
 
 !ifdef RELEASE
 AFLAGS += -d0
-CFLAGS += -d0 -oaxt
+CFLAGS += -we -d0 -oaxt
 !else
 AFLAGS += -d2
 CFLAGS += -d2 -DDEBUG
