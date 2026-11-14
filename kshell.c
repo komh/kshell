@@ -2303,7 +2303,6 @@ VOID calcXInfo( HWND hwnd, LONG lXChars )
 {
     HPS         hps;
     SIZEF       sizef;
-    POINTL      ptlStart = { 0, 0 };
     FONTMETRICS fm;
     int         i;
 
@@ -2320,11 +2319,8 @@ VOID calcXInfo( HWND hwnd, LONG lXChars )
 
     ksSetCharBox( hps, &sizef );
 
-    ksQueryCharStringPosAt( hps, &ptlStart, 0, lXChars, m_achXChar, NULL, m_aptlPos );
-
-    // workaround for FT2LIB. First position can be non-zero, maybe 1
-    if( m_fUseFt2Lib && m_lFt2LibLoadState == STATE_LOADED )
-        m_aptlPos[ 0 ].x = 0;
+    for( i = 0; i < lXChars + 1; i++ )
+        m_aptlPos[ i ].x = i * m_fat.lAveCharWidth;
 
     for( i = 0; i < lXChars; i++ )
         m_alXInc[ i ] = m_aptlPos[ i + 1 ].x - m_aptlPos[ i ].x;
