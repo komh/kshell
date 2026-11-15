@@ -3494,7 +3494,7 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
             default:
                 if( x == m_vmi.col )
                 {
-                    setCont( pKShellData->pbCont, m_vmi.row + y );
+                    setCont( pKShellData->pbCont, pKShellData->usBaseLineOfVioBuf + y );
 
                     x = 0;
                     y++;
