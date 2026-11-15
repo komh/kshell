@@ -1390,8 +1390,17 @@ static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
 
     if( ulMode == KSM_NORMAL )
     {
-        if( yCurNew >= yCur - usBaseLine )
-            usBaseLineNew = yCurNew - ( yCur - usBaseLine );
+        int yCur1 = yCur;
+        int yCurNew1 = yCurNew;
+
+        while( yCur1 > 0 && isCont( pbCont, yCur1 - 1 ))
+            yCur1--;
+
+        while( yCurNew1 > 0 && isCont( pbContNew, yCurNew1 - 1 ))
+            yCurNew1--;
+
+        if( yCurNew1 >= yCur1 - usBaseLine )
+            usBaseLineNew = yCurNew1 - ( yCur1 - usBaseLine );
 
         if(yCurNew - usBaseLineNew >= rows )
             usBaseLineNew = yCurNew - rows + 1;
