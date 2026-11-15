@@ -1387,7 +1387,9 @@ static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
 
     if( ulMode == KSM_NORMAL )
     {
-        usBaseLineNew = yCurNew - ( yCur - usBaseLine );
+        if( yCurNew >= yCur - usBaseLine )
+            usBaseLineNew = yCurNew - ( yCur - usBaseLine );
+
         if(yCurNew - usBaseLineNew >= rows )
             usBaseLineNew = yCurNew - rows + 1;
     }
