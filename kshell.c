@@ -3490,7 +3490,15 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
                 break;
 
             case '\b':  // Backspace
-                x--;
+                if( x > 0 )
+                {
+                    x--;
+                }
+                else if( y > 0 )
+                {
+                    x = m_vmi.col - 1;
+                    y--;
+                }
                 break;
 
             case '\r':  // Carriage return
