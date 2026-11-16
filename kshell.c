@@ -1327,27 +1327,38 @@ static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
 
     for( y = 0; y < yEnd; y++ )
     {
+        pus = ( PUSHORT )pVioBuf + y * m_vmi.col;
+
+        // find a line end
+        for( xEnd = m_vmi.col; xEnd > 0; xEnd-- )
+        {
+            if( LOUCHAR( pus[ xEnd - 1 ]) != 0x00 )
+                break;
+        }
+
+        // convert 0x00 to 0x20 before xEnd for the cases which wrote to the screen with VioWrtXXX() and/or ANSI
+        for( x = 0; x < xEnd; x++ )
+        {
+            if( LOUCHAR( pus[ x ]) == 0x00 )
+                *( PCH )&pus[ x ] = 0x20;
+        }
+
+        // find a new cursor pos
         if( ulMode == KSM_NORMAL && y == yCur )
         {
+            if( xEnd <= xCur )
+                xEnd = xCur + 1;    // include the cursor position
+
             xCurNew = xNew + xCur;
             yCurNew = yNew + xCurNew / cols;
             xCurNew = xCurNew % cols;
         }
 
-        for( x = 0; x < m_vmi.col;)
+        x = 0;
+
+        do
         {
-            pus = ( PUSHORT )pVioBuf + y * m_vmi.col;
-
-            for( xEnd = x; xEnd < m_vmi.col; xEnd++ )
-            {
-                if( LOUCHAR( pus[ xEnd ]) == 0x00 )
-                    break;
-            }
-
-            if( ulMode == KSM_NORMAL && y == yCur && xEnd <= xCur )
-                xEnd = xCur + 1;    // include the cursor position
-
-            pus += x;
+            pus = ( PUSHORT )pVioBuf + y * m_vmi.col + x;
             pusNew = ( PUSHORT )pVioBufNew + yNew * cols + xNew;
 
             cells = min( xEnd - x, cols - xNew );
@@ -1369,8 +1380,6 @@ static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
 
                     break;
                 }
-
-                x = m_vmi.col;  // break out loop
             }
 
             xNew += cells;
@@ -1381,7 +1390,7 @@ static VOID resize( HWND hwnd, ULONG ulMode, LONG rows, LONG cols )
                 xNew = 0;
                 yNew++;
             }
-        }
+        } while( x < xEnd );
     }
 
     yEndNew = yNew;
