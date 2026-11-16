@@ -607,7 +607,7 @@ static ULONG vioWrtCellStr( USHORT usIndex, PVOID pargs )
     DosWrite( hpipe, &p->usCol, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, &p->usRow, sizeof( USHORT ), &cbActual );
     DosWrite( hpipe, &p->usLen, sizeof( USHORT ), &cbActual );
-    DosWrite( hpipe, p->pchCellStr, p->usLen * sizeof( BYTE ) * VIO_CELLSIZE, &cbActual );
+    DosWrite( hpipe, p->pchCellStr, p->usLen, &cbActual );
 
     pipeClose( hpipe );
 
