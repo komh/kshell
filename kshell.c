@@ -441,6 +441,7 @@ typedef struct tagKSHELLDATA
     BOOL    fAnsiEnabled;
     PVOID   pLVB;
     USHORT  usLVBLen;
+    BOOL    fFt2LibBug;
 } KSHELLDATA, *PKSHELLDATA;
 
 #define getPtrOfUpdateBuf( pKShellData ) \
@@ -550,7 +551,7 @@ static VOID drawCharStringPosAt( HAB hab, PKSHELLDATA pKShellData, HPS hps, USHO
 {
     PCHAR   pch;
     int     xEnd = xStart + count;
-    int     x;
+    int     x, x1;
     PLONG   alXInc;
     PLONG   palXInc;
     RECTL   rcl;
@@ -562,14 +563,19 @@ static VOID drawCharStringPosAt( HAB hab, PKSHELLDATA pKShellData, HPS hps, USHO
     setAttr( hps, usAttr );
     if( isDBCSEnv())
     {
-        for( x = xStart, pch = pchBase; x < xEnd; x++, pch++ )
+        // Ft2CharStringPosAt() expects indexes of incrment values are in characters not in bytes.
+        for( x = x1 = xStart, pch = pchBase; x < xEnd; x++, x1++, pch++ )
         {
-            alXInc[ x ] = m_alXInc[ x ];
+            alXInc[ x1 ] = m_alXInc[ x ];
             if( isDBCSLeadByte( *pch ))
             {
-                alXInc[ x ] += m_alXInc[ x + 1 ];
+                alXInc[ x1 ] += m_alXInc[ x + 1 ];
                 x++, pch++;
-                alXInc[ x ] = 0;
+                if( !pKShellData->fFt2LibBug )
+                {
+                    x1++;
+                    alXInc[ x1 ] = 0;
+                }
             }
         }
 
@@ -2324,6 +2330,8 @@ VOID initDBCSEnv( USHORT usCP )
 
 VOID calcXInfo( HWND hwnd, LONG lXChars )
 {
+    PKSHELLDATA pksd = WinQueryWindowPtr( hwnd, 0 );
+
     HPS         hps;
     SIZEF       sizef;
     FONTMETRICS fm;
@@ -2342,13 +2350,35 @@ VOID calcXInfo( HWND hwnd, LONG lXChars )
 
     ksSetCharBox( hps, &sizef );
 
+    ksQueryFontMetrics( hps, sizeof( FONTMETRICS ), &fm );
+
+    // check Ft2Lib bug
+    // Ft2Lib expects the indexes of incremental values in characters not in bytes. This affects to DBCS only.
+    pksd->fFt2LibBug = FALSE;
+    if( fm.fsType & ( FM_TYPE_MBCS | FM_TYPE_DBCS ))
+    {
+        #define FT2LIB_BUGSTR       "\xE0\xB0"
+        #define FT2LIB_BUGSTR_LEN   ( sizeof( FT2LIB_BUGSTR ) - 1 )
+
+        POINTL ptl0 = { 0, 0 };
+        POINTL aptl[ FT2LIB_BUGSTR_LEN + 1 ];
+        LONG   alXInc[ FT2LIB_BUGSTR_LEN ];
+
+        alXInc[ 0 ] = m_fat.lAveCharWidth * 2;
+        alXInc[ 1 ] = 0;
+        ksQueryCharStringPosAt( hps, &ptl0, CHS_VECTOR, FT2LIB_BUGSTR_LEN, FT2LIB_BUGSTR, alXInc, &aptl );
+        pksd->fFt2LibBug = aptl[ FT2LIB_BUGSTR_LEN ].x - aptl[ 0 ].x != alXInc[ 0 ];
+
+        #undef FT2LIB_BUGSTR
+        #undef FT2LIB_BUGSTR_LEN
+    }
+    dprintf("FT2LIB bug %s for [%s] font\n", pksd->fFt2LibBug ? "DETECTED" : "NOT detected", m_fat.szFacename );
+
     for( i = 0; i < lXChars + 1; i++ )
         m_aptlPos[ i ].x = i * m_fat.lAveCharWidth;
 
     for( i = 0; i < lXChars; i++ )
         m_alXInc[ i ] = m_aptlPos[ i + 1 ].x - m_aptlPos[ i ].x;
-
-    ksQueryFontMetrics( hps, sizeof( FONTMETRICS ), &fm );
 
     m_lCharHeight = fm.lMaxBaselineExt + fm.lExternalLeading;
     m_lMaxDescender = fm.lMaxDescender;
