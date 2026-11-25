@@ -1750,7 +1750,9 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 return MRFROMLONG( TRUE );
 
             if(( pKShellData->ulKShellMode == KSM_SCROLLBACK ) &&
-               !( fsFlags & KC_KEYUP ))
+               !( fsFlags & KC_KEYUP ) &&
+               !(( fsFlags & KC_VIRTUALKEY ) &&
+                 ( usVk == VK_CTRL || usVk == VK_ALT || usVk == VK_SHIFT )))
                 doneScrollBackMode( hwnd );
 
             WinSetKeyboardStateTable( HWND_DESKTOP, abKbdState, FALSE );
