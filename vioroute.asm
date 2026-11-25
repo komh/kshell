@@ -7,8 +7,6 @@
         EXTRN   _Entry32Main:NEAR
         EXTRN   DosSelToFlat:NEAR
 
-STACK_SIZE  =   24*1024
-
 CODE16          SEGMENT WORD PUBLIC USE16 'CODE'
                 ASSUME  CS:CODE16
 
@@ -45,19 +43,32 @@ Entry32bit:
         jmp far ptr CODE16:Return16bit
 
 continue:
-        mov word ptr [STACK16],sp       ; sp - lo word
-        mov word ptr [STACK16+2],ss     ; ss - hi word
+; Run 32-bit code on the caller's stack, not on a private stack.
+; If we are called within a 32-bit API thunked to 16-bit by DOSCALL1,
+; the caller's stack is a ThunkTIB of DOSCALL1. Then any thunked API
+; called from a private stack, such as DosClose(), switches to the top
+; of the ThunkTIB again and overwrites the frame of the outer API.
+        push ss                         ; save caller ss on its own stack
 
-        mov ss,eax              ; }
-        mov esp,offset TMP_STACK+STACK_SIZE ; } set new stack
+        mov ax,ss
+        shl eax,16
+        mov ax,sp                       ; 16:16 caller stack
+        call    DosSelToFlat            ; eax = flat caller stack
+
+        push ds
+        pop ss                          ; }
+        mov esp,eax                     ; } same stack, now flat
+
+; on stack - caller ss
+        push eax
+        and dword ptr [esp],0FFFFh      ; 16:32 caller ss:sp for lss
 
         pushad                  ; save all regs
 
-        mov eax,[STACK16]           ; 16:16 old stack
-        call    DosSelToFlat
+        lea eax,[esp+8*4+8]             ; skip pushad, ss:sp and ss
         push    eax             ; 32-bit flat old stack
 
-; for now: ds=es=ss=FLAT DATA, esp=new 32 bit stack
+; for now: ds=es=ss=FLAT DATA, esp=flat caller stack
 ; on stack - old 16-bit stack pointer.
 ; call pure 32-bit entry point
         call    _Entry32Main
@@ -69,7 +80,8 @@ Return32bit:
         mov [esp+7*4],eax           ; replace eax
         popad                   ; restore all regs
 
-        lss sp,dword ptr [STACK16]      ; restore old ss:sp
+        lss esp,fword ptr [esp]         ; restore old ss:sp
+        add esp,4                       ; remove caller ss
         jmp far ptr CODE16:Return16bit
 CODE32          ENDS
 
@@ -78,8 +90,6 @@ DATA32      SEGMENT DWORD PUBLIC USE32 'DATA'
 
         ALIGN   4
 _SkipFlag       DD  0
-STACK16         DD  ?
-TMP_STACK   DB  STACK_SIZE DUP (0)
 
 DATA32      ENDS
 
