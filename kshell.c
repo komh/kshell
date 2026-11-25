@@ -1663,13 +1663,13 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             UCHAR   uchScan = CHAR4FROMMP( mp1 );
             USHORT  usCh = SHORT1FROMMP( mp2 );
             USHORT  usVk = SHORT2FROMMP( mp2 );
+            BOOL    fCtrlShift = ( fsFlags & ( KC_CTRL | KC_ALT | KC_SHIFT )) == ( KC_CTRL | KC_SHIFT );
             PMPARAM pmp;
             BYTE    abKbdState[ 256 ];
             BYTE    abPhysKbdState[ 256 ];
 
             // Ctrl+Shift+N
-            if(( fsFlags & ( KC_CTRL | KC_ALT | KC_SHIFT )) == ( KC_CTRL | KC_SHIFT ) &&
-               ( usCh == 'N' || usCh == 'n' || (( fsFlags & KC_SCANCODE ) && uchScan == 0x31 )))
+            if( fCtrlShift && ( usCh == 'N' || usCh == 'n' || (( fsFlags & KC_SCANCODE ) && uchScan == 0x31 )))
             {
                 if( !( fsFlags & KC_KEYUP ))
                 {
@@ -1687,7 +1687,7 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             }
 
             // Ctrl+Shift+Insert, V
-            if(( fsFlags & ( KC_CTRL | KC_ALT | KC_SHIFT )) == ( KC_CTRL | KC_SHIFT ) &&
+            if( fCtrlShift &&
                ((( fsFlags & KC_VIRTUALKEY ) && usVk == VK_INSERT ) ||
                 ( usCh == 'V' || usCh == 'v' || (( fsFlags & KC_SCANCODE ) && uchScan == 0x2F ))))
             {
@@ -1728,8 +1728,7 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             }
 
             // scroll-back keys: Ctrl+Shift+Up, Down, PgUp, PgDn
-            if(( fsFlags & ( KC_ALT | KC_CTRL | KC_SHIFT )) == ( KC_CTRL | KC_SHIFT ) &&
-               ( fsFlags & ( KC_VIRTUALKEY | KC_SCANCODE )))
+            if( fCtrlShift && ( fsFlags & ( KC_VIRTUALKEY | KC_SCANCODE )))
             {
                 USHORT usCmd = 0;
 
