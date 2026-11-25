@@ -1716,7 +1716,7 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 // workaround for some keyboards which do not recognize PgUp/PgDn as virtual keys
                 if( fsFlags & KC_SCANCODE )
                 {
-                    switch( CHAR4FROMMP( mp1 ))
+                    switch( uchScan )
                     {
                         case 0x49:  // PAD PgUp
                         case 0x62:  // PgUp
