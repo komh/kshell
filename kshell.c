@@ -1686,6 +1686,26 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 return MRFROMLONG( TRUE );
             }
 
+            // Ctrl+Shift+Insert, V
+            if(( fsFlags & ( KC_CTRL | KC_ALT | KC_SHIFT )) == ( KC_CTRL | KC_SHIFT ) &&
+               ((( fsFlags & KC_VIRTUALKEY ) && usVk == VK_INSERT ) ||
+                ( usCh == 'V' || usCh == 'v' || (( fsFlags & KC_SCANCODE ) && uchScan == 0x2F ))))
+            {
+                if( !( fsFlags & KC_KEYUP ))
+                {
+                    if( pKShellData->ulKShellMode == KSM_MARKING )
+                        doneMarkingMode( hwnd );
+
+                    // do not use 'else if' because switching back from marking mode to scroll-back mode is possible
+                    if( pKShellData->ulKShellMode == KSM_SCROLLBACK )
+                        doneScrollBackMode( hwnd );
+
+                    WinSendMsg( hwnd, WM_COMMAND, MPFROMSHORT( IDM_PASTE ), 0 );
+                }
+
+                return MRFROMLONG( TRUE );
+            }
+
             if( pKShellData->ulKShellMode == KSM_MARKING )
             {
                 if(!( fsFlags & KC_KEYUP ) &&
