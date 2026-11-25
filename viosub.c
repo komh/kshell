@@ -148,6 +148,8 @@ static ULONG vioGetBuf( USHORT usIndex, PVOID pargs )
     // Send ACK
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
 
+    pipeClose( hpipe );
+
     return 0;
 }
 
