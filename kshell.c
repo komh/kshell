@@ -1660,10 +1660,31 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
         case WM_CHAR :
         {
             USHORT  fsFlags = SHORT1FROMMP( mp1 );
+            UCHAR   uchScan = CHAR4FROMMP( mp1 );
+            USHORT  usCh = SHORT1FROMMP( mp2 );
             USHORT  usVk = SHORT2FROMMP( mp2 );
             PMPARAM pmp;
             BYTE    abKbdState[ 256 ];
             BYTE    abPhysKbdState[ 256 ];
+
+            // Ctrl+Shift+N
+            if(( fsFlags & ( KC_CTRL | KC_ALT | KC_SHIFT )) == ( KC_CTRL | KC_SHIFT ) &&
+               ( usCh == 'N' || usCh == 'n' || (( fsFlags & KC_SCANCODE ) && uchScan == 0x31 )))
+            {
+                if( !( fsFlags & KC_KEYUP ))
+                {
+                    PPIB ppib;
+                    CHAR szError[ CCHMAXPATH ];
+                    RESULTCODES result;
+
+                    DosGetInfoBlocks( NULL, &ppib );
+                    DosExecPgm( szError, sizeof( szError ), EXEC_ASYNCRESULT,
+                                ppib->pib_pchcmd, ppib->pib_pchenv, &result,
+                                ppib->pib_pchcmd );
+                }
+
+                return MRFROMLONG( TRUE );
+            }
 
             if( pKShellData->ulKShellMode == KSM_MARKING )
             {
