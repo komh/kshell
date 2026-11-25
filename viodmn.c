@@ -1,5 +1,6 @@
 #define INCL_DOS
 #define INCL_DOSERRORS
+#define INCL_DOSDEVIOCTL
 #define INCL_VIO
 #define INCL_KBD
 #define INCL_WIN
@@ -203,6 +204,8 @@ static TID       m_tid_kbdmon;
 static TID      m_tid_packet;
 static HQUEUE   m_hqPacket;
 
+static HFILE    m_hkbd = NULLHANDLE;
+
 static BOOL m_fPaused = FALSE;
 
 static void init( PSZ pszPid );
@@ -221,6 +224,7 @@ static void termVioSubPipeThread( void );
 static void packetRead( PKEYPACKET pkp );
 static void packetWrite( PKEYPACKET pkp );
 static void packetThread( void *arg );
+static void setShiftState( USHORT fsState );
 
 int main( int argc, char *argv[] )
 {
@@ -264,6 +268,7 @@ void init( PSZ pszPid )
 {
     CHAR    szSemKShell[ SEM_VIODMN_KSHELL_LEN ];
     CHAR    szQueueName[ 80 ];
+    ULONG   ulAction;
 
     initSGID();
 
@@ -271,6 +276,12 @@ void init( PSZ pszPid )
 
     strcpy( m_szMemName, MEM_KSHELL_VIOBUF_BASE );
     strcat( m_szMemName, pszPid );
+
+    // to set the shift state of the keyboard device driver
+    if( DosOpen( "KBD$", &m_hkbd, &ulAction, 0, 0,
+                 OPEN_ACTION_OPEN_IF_EXISTS,
+                 OPEN_ACCESS_READWRITE | OPEN_SHARE_DENYNONE, NULL ))
+        m_hkbd = NULLHANDLE;
 
     DosMonOpen( "KBD$", &m_hmon );
 
@@ -325,6 +336,9 @@ void done( void )
 
     DosMonClose( m_hmon );
     while( DosWaitThread( &m_tid_kbdmon, DCWW_WAIT ) == ERROR_INTERRUPT );
+
+    if( m_hkbd != NULLHANDLE )
+        DosClose( m_hkbd );
 }
 
 void initSGID( void )
@@ -1054,7 +1068,40 @@ void packetThread( void *arg )
         if( keyPacket.monFlag == ( USHORT )-1 )
             break;
 
+        // Keep the shift state of the keyboard device driver in sync with
+        // the injected key, so that KbdGetStatus() returns the same state
+        setShiftState( keyPacket.cp.fsState );
+
         DosMonWrite(( PBYTE )&m_monOut, ( PBYTE )&keyPacket, sizeof( KEYPACKET ));
     }
 }
 
+void setShiftState( USHORT fsState )
+{
+    SHIFTSTATE  ss;
+    ULONG       cbParm;
+    ULONG       cbData;
+
+    if( m_hkbd == NULLHANDLE )
+        return;
+
+    // SHIFTSTATE is 3 bytes regardless of packing
+    cbParm = 0;
+    cbData = sizeof( USHORT ) + sizeof( BYTE );
+    if( DosDevIOCtl( m_hkbd, IOCTL_KEYBOARD, KBD_GETSHIFTSTATE,
+                     NULL, 0, &cbParm,
+                     &ss, sizeof( USHORT ) + sizeof( BYTE ), &cbData ))
+        return;
+
+    if( ss.fsState == fsState )
+        return;
+
+    ss.fsState = fsState;
+
+    // KBD_SETSHIFTSTATE takes SHIFTSTATE in the parameter packet
+    cbParm = sizeof( USHORT ) + sizeof( BYTE );
+    cbData = 0;
+    DosDevIOCtl( m_hkbd, IOCTL_KEYBOARD, KBD_SETSHIFTSTATE,
+                 &ss, sizeof( USHORT ) + sizeof( BYTE ), &cbParm,
+                 NULL, 0, &cbData );
+}
