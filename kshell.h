@@ -41,5 +41,6 @@
 
 #define KSHELLM_INITFRAME   ( WM_USER + 1 )
 #define KSHELLM_SETMODE     ( WM_USER + 2 )
+#define KSHELLM_SETCWD      ( WM_USER + 3 )
 
 #endif

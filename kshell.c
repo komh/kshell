@@ -117,6 +117,12 @@ static ULONG    m_ulSGID = ( ULONG )-1;
 static HPIPE    m_hpipeVioSub = NULLHANDLE;
 static TID      m_tidPipeThread = 0;
 
+// Code inserted at the beginning of PROMPT. viosub sends ESC]7;CWD ESC\ (ST)
+// after ESC]7;ESC\ (ST). ESC[s and ESC[u hide ]7;\ on the other ANSI
+// terminals, which do not understand OSC
+#define PROMPT_CWD_CODE     "$e[s$e]7;$e\\$e[u"
+#define PROMPT_DEFAULT      "[$p]"
+
 // full paths of KShell and viodmn, because the current directory is changed.
 // viodmn is searched in PATH if it is not in the directory of KShell
 static CHAR     m_szKShellExe[ CCHMAXPATH ];
@@ -446,6 +452,12 @@ typedef struct tagKSHELLDATA
     BOOL    fCSI;
     LONG    alCSIParams[ MAX_CSI_PARAMS ];
     LONG    lCSIParamIndex;
+    BOOL    fOSC;
+    BOOL    fOSCESC;
+    CHAR    achOSC[ CCHMAXPATH + 8 ];
+    LONG    lOSCLen;
+    BOOL    fESCGlyph;
+    CHAR    szCwd[ CCHMAXPATH ];    // CWD of the shell, accessed only by PM thread
     BOOL    fIntensity;
     BOOL    fBlinking;
     LONG    lFgColor;
@@ -1584,6 +1596,9 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             pKShellData = ( PKSHELLDATA )malloc( sizeof( KSHELLDATA ));
             memset( pKShellData, 0, sizeof( KSHELLDATA ));
 
+            // until CWD is reported by the shell
+            strcpy( pKShellData->szCwd, m_szStartDir );
+
             WinSetWindowPtr( hwnd, 0, pKShellData );
 
             pKShellData->ulBufSize = ( KSHELL_SCROLLBACK_LINES + m_vmi.row ) * m_vmi.col * VIO_CELLSIZE;
@@ -1692,16 +1707,16 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                     CHAR szError[ CCHMAXPATH ];
                     RESULTCODES result;
 
-                    // start a new KShell in the start directory
-                    if( !DosSetDefaultDisk( toupper( m_szStartDir[ 0 ]) - 'A' + 1 ))
-                        DosSetCurrentDir( m_szStartDir );
+                    // start a new KShell in CWD of the shell
+                    if( !DosSetDefaultDisk( toupper( pKShellData->szCwd[ 0 ]) - 'A' + 1 ))
+                        DosSetCurrentDir( pKShellData->szCwd );
 
                     DosGetInfoBlocks( NULL, &ppib );
                     DosExecPgm( szError, sizeof( szError ), EXEC_ASYNCRESULT,
                                 ppib->pib_pchcmd, ppib->pib_pchenv, &result,
                                 m_szKShellExe );
 
-                    // do not occupy the start directory
+                    // do not occupy CWD of the shell
                     releaseCurDirs();
                 }
 
@@ -2253,6 +2268,17 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
             return 0;
         }
 
+        case KSHELLM_SETCWD :
+        {
+            PSZ pszCwd = PVOIDFROMMP( mp1 );
+
+            strncpy( pKShellData->szCwd, pszCwd, sizeof( pKShellData->szCwd ) - 1 );
+            pKShellData->szCwd[ sizeof( pKShellData->szCwd ) - 1 ] = '\0';
+
+            free( pszCwd );
+            return 0;
+        }
+
         case KSHELLM_INITFRAME :
             initFrame( WinQueryWindow( hwnd, QW_PARENT ));
             updateWindow( hwnd, NULL );
@@ -2645,15 +2671,73 @@ static VOID releaseCurDirs( VOID )
     DosError( FERR_ENABLEHARDERR );
 }
 
+// Make an environment for viodmn with the CWD code at the beginning of PROMPT
+static PCHAR makeVioDmnEnv( VOID )
+{
+    PPIB    ppib;
+    PCHAR   pszEnv;
+    PCHAR   pszNewEnv;
+    PCHAR   pszDest;
+    PCHAR   psz;
+    ULONG   cb;
+    BOOL    fPrompt = FALSE;
+
+    DosGetInfoBlocks( NULL, &ppib );
+
+    pszEnv = ppib->pib_pchenv;
+
+    // size of the environment including the last null
+    for( psz = pszEnv; *psz; psz += strlen( psz ) + 1 )
+        /* nothing */;
+    cb = psz - pszEnv + 1;
+
+    pszNewEnv = malloc( cb + sizeof("PROMPT=") + sizeof( PROMPT_CWD_CODE ) +
+                        sizeof( PROMPT_DEFAULT ));
+    if( !pszNewEnv )
+        return NULL;
+
+    pszDest = pszNewEnv;
+    for( psz = pszEnv; *psz; psz += strlen( psz ) + 1 )
+    {
+        if( !strnicmp( psz, "PROMPT=", 7 ))
+        {
+            fPrompt = TRUE;
+
+            // do not insert if already inserted, i.e. KShell in KShell
+            if( strnicmp( psz + 7, PROMPT_CWD_CODE, strlen( PROMPT_CWD_CODE )))
+            {
+                pszDest += sprintf( pszDest, "PROMPT=%s%s",
+                                    PROMPT_CWD_CODE, psz + 7 ) + 1;
+                continue;
+            }
+        }
+
+        strcpy( pszDest, psz );
+        pszDest += strlen( psz ) + 1;
+    }
+
+    if( !fPrompt )
+        pszDest += sprintf( pszDest, "PROMPT=%s%s",
+                            PROMPT_CWD_CODE, PROMPT_DEFAULT ) + 1;
+
+    *pszDest = '\0';
+
+    return pszNewEnv;
+}
+
 BOOL startVioDmn( VOID )
 {
     STARTDATA   stdata;
     CHAR        szInput[ 256 ];
     CHAR        ObjectBuffer[ 256 ];
+    PCHAR       pszEnv;
+    BOOL        fResult;
 
     strcpy( szInput, m_szPid );
     strcat( szInput, " " );
     strcat( szInput, VIODMN_MAGIC );
+
+    pszEnv = makeVioDmnEnv();
 
     stdata.Length = sizeof( stdata );
     stdata.Related = SSF_RELATED_INDEPENDENT;
@@ -2663,7 +2747,7 @@ BOOL startVioDmn( VOID )
     stdata.PgmName = m_szVioDmnExe;
     stdata.PgmInputs = szInput;
     stdata.TermQ = 0;
-    stdata.Environment = 0;
+    stdata.Environment = ( PBYTE )pszEnv;
     stdata.InheritOpt = SSF_INHERTOPT_PARENT;
     stdata.SessionType = SSF_TYPE_FULLSCREEN;
     stdata.IconFile = 0;
@@ -2672,7 +2756,11 @@ BOOL startVioDmn( VOID )
     stdata.ObjectBuffer = ObjectBuffer;
     stdata.ObjectBuffLen = sizeof( ObjectBuffer );
 
-    return ( DosStartSession( &stdata, &m_sidVioDmn, &m_pidVioDmn ) == 0 );
+    fResult = DosStartSession( &stdata, &m_sidVioDmn, &m_pidVioDmn ) == 0;
+
+    free( pszEnv );
+
+    return fResult;
 }
 
 VOID waitVioDmn( VOID )
@@ -3338,6 +3426,29 @@ static void vioGetAnsi( HWND hwnd, USHORT *pfAnsi )
 
 #define MAKECELL( ch, pksd ) MAKEUSHORT(( ch ), ( pksd )->lFgColor | (( pksd )->lBgColor << 4 ))
 
+// Process OSC collected in achOSC
+static VOID processOSC( HWND hwnd )
+{
+    PKSHELLDATA pKShellData = WinQueryWindowPtr( hwnd, 0 );
+
+    PCHAR pszCwd;
+
+    pKShellData->achOSC[ pKShellData->lOSCLen ] = '\0';
+
+    // ESC]7;CWD ESC\ : CWD reported by viosub. Let PM thread store it, so
+    // that Ctrl+Shift+N processed by PM thread does not need synchronization
+    if( strncmp( pKShellData->achOSC, "7;", 2 ) == 0 )
+    {
+        pszCwd = pKShellData->achOSC + 2;
+
+        if( *pszCwd && ( pszCwd = strdup( pszCwd )) != NULL &&
+            !WinPostMsg( hwnd, KSHELLM_SETCWD, MPFROMP( pszCwd ), 0 ))
+            free( pszCwd );
+    }
+
+    // other OSCs are ignored
+}
+
 static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
 {
     // See aiColorTable of setAttr()
@@ -3364,11 +3475,21 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
     y = pKShellData->y;
     while( usLen > 0 )
     {
-        if( pKShellData->fAnsiEnabled && pKShellData->fESC )
+        if( pKShellData->fESC )
         {
-            if( !pKShellData->fCSI )
+            if( !pKShellData->fCSI && !pKShellData->fOSC )
             {
-                if( *pch == '[')
+                // OSC is processed regardless of ANSI mode
+                if( *pch == ']')
+                {
+                    pch++;
+                    usLen--;
+
+                    pKShellData->fOSC = TRUE;
+                    pKShellData->fOSCESC = FALSE;
+                    pKShellData->lOSCLen = 0;
+                }
+                else if( pKShellData->fAnsiEnabled && *pch == '[')
                 {
                     pch++;
                     usLen--;
@@ -3378,7 +3499,39 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
                     pKShellData->lCSIParamIndex = 0;
                 }
                 else
+                {
                     pKShellData->fESC = FALSE;
+
+                    // ANSI is disabled, so ESC itself should be displayed
+                    if( !pKShellData->fAnsiEnabled )
+                        pKShellData->fESCGlyph = TRUE;
+                }
+            }
+
+            while( pKShellData->fOSC && usLen > 0 )
+            {
+                CHAR ch = *pch;
+
+                pch++;
+                usLen--;
+
+                if( pKShellData->fOSCESC )
+                {
+                    // ESC \ (ST) terminates OSC. ESC with other characters
+                    // cancels OSC
+                    pKShellData->fOSC = FALSE;
+                    pKShellData->fESC = FALSE;
+
+                    if( ch == '\\')
+                        processOSC( hwnd );
+
+                    break;
+                }
+
+                if( ch == '\x1b')
+                    pKShellData->fOSCESC = TRUE;
+                else if( pKShellData->lOSCLen < sizeof( pKShellData->achOSC ) - 1 )
+                    pKShellData->achOSC[ pKShellData->lOSCLen++ ] = ch;
             }
 
             while( pKShellData->fCSI && usLen > 0 )
@@ -3565,19 +3718,28 @@ static VOID vioWrtTTY( HWND hwnd, PCH pch, USHORT usLen )
         xStart = x;
         chControl = 0;
 
-        while( x < m_vmi.col && usLen > 0 )
+        while( x < m_vmi.col && ( usLen > 0 || pKShellData->fESCGlyph ))
         {
+            // ESC not followed by OSC in non-ANSI mode
+            if( pKShellData->fESCGlyph )
+            {
+                pKShellData->fESCGlyph = FALSE;
+
+                *pBuf = MAKECELL( '\x1b', pKShellData );
+
+                x++;
+                pBuf++;
+                continue;
+            }
+
             switch( *pch )
             {
                 case '\a':  // Bell
                 case '\b':  // Backspace
                 case '\r':  // Carriage return
                 case '\n':  // Line feed
-                case '\x1b':// ESC
-                    if( pKShellData->fAnsiEnabled || *pch != '\x1b')
-                        chControl = *pch;
-                    else
-                        *pBuf = MAKECELL( *pch, pKShellData );
+                case '\x1b':// ESC, always check OSC
+                    chControl = *pch;
                     break;
 
                 case '\t':  // Horizontal tab

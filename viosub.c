@@ -5,6 +5,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <direct.h>
 
 #include "dosqss.h"
 
@@ -625,20 +626,69 @@ typedef struct tagVIOWRTTTYPARAM
 } VIOWRTTTYPARAM, *PVIOWRTTTYPARAM;
 #pragma pack()
 
-static ULONG vioWrtTTY( USHORT usIndex, PVOID pargs )
-{
-    PVIOWRTTTYPARAM p = pargs;
+// ESC]7;ESC\ (ST) in PROMPT. When it is written, ESC]7;CWD ESC\ (ST) is sent
+// right after it. KShell ignores ESC]7;ESC\ (ST) without CWD
+static const CHAR m_achCwdCode[] = "\x1b]7;\x1b\\";
+#define CWD_CODE_LEN    ( sizeof( m_achCwdCode ) - 1 )
 
+// the number of characters of m_achCwdCode matched so far. It is kept
+// across calls because the code may be split into several VioWrtTTY() calls
+static int m_iCwdCodeMatch = 0;
+
+static VOID sendTTY( USHORT usIndex, PCH pch, USHORT usLen )
+{
     HPIPE   hpipe;
     ULONG   cbActual;
+
+    if( usLen == 0 )
+        return;
 
     pipeOpen( &hpipe );
 
     DosWrite( hpipe, &usIndex, sizeof( USHORT ), &cbActual );
-    DosWrite( hpipe, &p->usLen, sizeof( USHORT ), &cbActual );
-    DosWrite( hpipe, p->pchCharStr, p->usLen, &cbActual );
+    DosWrite( hpipe, &usLen, sizeof( USHORT ), &cbActual );
+    DosWrite( hpipe, pch, usLen, &cbActual );
 
     pipeClose( hpipe );
+}
+
+static ULONG vioWrtTTY( USHORT usIndex, PVOID pargs )
+{
+    PVIOWRTTTYPARAM p = pargs;
+
+    PCH     pch = p->pchCharStr;
+    USHORT  usStart = 0;
+    USHORT  i;
+    CHAR    szCode[ CCHMAXPATH + CWD_CODE_LEN ];
+
+    for( i = 0; i < p->usLen; i++ )
+    {
+        if( pch[ i ] != m_achCwdCode[ m_iCwdCodeMatch ])
+        {
+            m_iCwdCodeMatch = pch[ i ] == m_achCwdCode[ 0 ];
+            continue;
+        }
+
+        if( ++m_iCwdCodeMatch < CWD_CODE_LEN )
+            continue;
+
+        m_iCwdCodeMatch = 0;
+
+        // send up to the end of the code, where no ANSI sequence is in
+        // progress, then ESC]7;CWD ESC\ (ST)
+        sendTTY( usIndex, pch + usStart, i + 1 - usStart );
+
+        if( getcwd( szCode + 4, CCHMAXPATH ))
+        {
+            memcpy( szCode, m_achCwdCode, 4 );
+            strcat( szCode, m_achCwdCode + 4 );
+            sendTTY( usIndex, szCode, strlen( szCode ));
+        }
+
+        usStart = i + 1;
+    }
+
+    sendTTY( usIndex, pch + usStart, p->usLen - usStart );
 
     return 0;
 }
