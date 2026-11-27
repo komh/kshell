@@ -8,8 +8,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <time.h>
 #include <process.h>
+#include <io.h>
+#include <direct.h>
 #include <alloca.h>
 
 #include <uconv.h>
@@ -114,6 +117,14 @@ static ULONG    m_ulSGID = ( ULONG )-1;
 static HPIPE    m_hpipeVioSub = NULLHANDLE;
 static TID      m_tidPipeThread = 0;
 
+// full paths of KShell and viodmn, because the current directory is changed.
+// viodmn is searched in PATH if it is not in the directory of KShell
+static CHAR     m_szKShellExe[ CCHMAXPATH ];
+static CHAR     m_szVioDmnExe[ CCHMAXPATH ];
+
+// the start directory, because the current directory is changed
+static CHAR     m_szStartDir[ CCHMAXPATH ];
+
 #define STATE_LOADED     1L
 #define STATE_FAILED     0L
 #define STATE_UNKNOWN   -1L
@@ -150,6 +161,7 @@ static VOID initFrame( HWND hwndFrame );
 static BOOL callVioDmn( USHORT usMsg );
 
 static BOOL startVioDmn( VOID );
+static VOID releaseCurDirs( VOID );
 static VOID waitVioDmn( VOID );
 
 static VOID initPipeThreadForVioSub( HWND hwnd );
@@ -277,6 +289,9 @@ int main( int argc, char *argv[])
         result = 1;
         goto main_exit;
     }
+
+    // viodmn and the shell inherited the current directory
+    releaseCurDirs();
 
     waitVioDmn();
 
@@ -1677,10 +1692,17 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                     CHAR szError[ CCHMAXPATH ];
                     RESULTCODES result;
 
+                    // start a new KShell in the start directory
+                    if( !DosSetDefaultDisk( toupper( m_szStartDir[ 0 ]) - 'A' + 1 ))
+                        DosSetCurrentDir( m_szStartDir );
+
                     DosGetInfoBlocks( NULL, &ppib );
                     DosExecPgm( szError, sizeof( szError ), EXEC_ASYNCRESULT,
                                 ppib->pib_pchcmd, ppib->pib_pchenv, &result,
-                                ppib->pib_pchcmd );
+                                m_szKShellExe );
+
+                    // do not occupy the start directory
+                    releaseCurDirs();
                 }
 
                 return MRFROMLONG( TRUE );
@@ -2281,6 +2303,16 @@ BOOL init( VOID )
 
     _ultoa( ppib->pib_ulpid, m_szPid, 16 );
 
+    DosQueryModuleName( ppib->pib_hmte, sizeof( m_szKShellExe ), m_szKShellExe );
+
+    if( !getcwd( m_szStartDir, sizeof( m_szStartDir )))
+        m_szStartDir[ 0 ] = '\0';
+
+    strcpy( m_szVioDmnExe, m_szKShellExe );
+    strcpy( strrchr( m_szVioDmnExe, '\\') + 1, "viodmn.exe");
+    if( access( m_szVioDmnExe, 0 ))
+        strcpy( m_szVioDmnExe, "viodmn.exe");
+
     strcpy( szMem, MEM_KSHELL_VIOBUF_BASE );
     strcat( szMem, m_szPid );
 
@@ -2581,6 +2613,38 @@ BOOL    callVioDmn( USHORT usMsg )
     return fQuit;
 }
 
+// Leave the current directories of all drives at their roots, and change
+// the current drive to the boot drive, not to occupy any directory. Call
+// this after starting a child which should inherit the current directory
+static VOID releaseCurDirs( VOID )
+{
+    ULONG ulDisk;
+    ULONG ulMap;
+    ULONG cb;
+    CHAR  szDir[ CCHMAXPATH ];
+    CHAR  szRoot[] = "?:\\";
+
+    // do not pop up hard errors for removable drives without media
+    DosError( FERR_DISABLEHARDERR );
+
+    DosQueryCurrentDisk( &ulDisk, &ulMap );
+    for( ulDisk = 1; ulDisk <= 26; ulDisk++ )
+    {
+        cb = sizeof( szDir );
+        if(( ulMap & ( 1UL << ( ulDisk - 1 ))) &&
+           DosQueryCurrentDir( ulDisk, szDir, &cb ) == 0 && szDir[ 0 ])
+        {
+            szRoot[ 0 ] = 'A' + ulDisk - 1;
+            DosSetCurrentDir( szRoot );
+        }
+    }
+
+    DosQuerySysInfo( QSV_BOOT_DRIVE, QSV_BOOT_DRIVE, &ulDisk, sizeof( ulDisk ));
+    DosSetDefaultDisk( ulDisk );
+
+    DosError( FERR_ENABLEHARDERR );
+}
+
 BOOL startVioDmn( VOID )
 {
     STARTDATA   stdata;
@@ -2596,7 +2660,7 @@ BOOL startVioDmn( VOID )
     stdata.FgBg = SSF_FGBG_BACK;
     stdata.TraceOpt = SSF_TRACEOPT_NONE;
     stdata.PgmTitle = "VIO Daemon";
-    stdata.PgmName = "VIODMN.EXE";
+    stdata.PgmName = m_szVioDmnExe;
     stdata.PgmInputs = szInput;
     stdata.TermQ = 0;
     stdata.Environment = 0;

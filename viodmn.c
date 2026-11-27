@@ -226,6 +226,38 @@ static void packetWrite( PKEYPACKET pkp );
 static void packetThread( void *arg );
 static void setShiftState( USHORT fsState );
 
+// Leave the current directories of all drives at their roots, and change
+// the current drive to the boot drive, not to occupy any directory. Call
+// this after starting a child which should inherit the current directory
+static VOID releaseCurDirs( VOID )
+{
+    ULONG ulDisk;
+    ULONG ulMap;
+    ULONG cb;
+    CHAR  szDir[ CCHMAXPATH ];
+    CHAR  szRoot[] = "?:\\";
+
+    // do not pop up hard errors for removable drives without media
+    DosError( FERR_DISABLEHARDERR );
+
+    DosQueryCurrentDisk( &ulDisk, &ulMap );
+    for( ulDisk = 1; ulDisk <= 26; ulDisk++ )
+    {
+        cb = sizeof( szDir );
+        if(( ulMap & ( 1UL << ( ulDisk - 1 ))) &&
+           DosQueryCurrentDir( ulDisk, szDir, &cb ) == 0 && szDir[ 0 ])
+        {
+            szRoot[ 0 ] = 'A' + ulDisk - 1;
+            DosSetCurrentDir( szRoot );
+        }
+    }
+
+    DosQuerySysInfo( QSV_BOOT_DRIVE, QSV_BOOT_DRIVE, &ulDisk, sizeof( ulDisk ));
+    DosSetDefaultDisk( ulDisk );
+
+    DosError( FERR_ENABLEHARDERR );
+}
+
 int main( int argc, char *argv[] )
 {
     PSZ         pszComspec;
@@ -252,6 +284,10 @@ int main( int argc, char *argv[] )
         }
 
         m_pid_comspec = spawnlp( P_NOWAIT, pszComspec, pszComspec, NULL );
+
+        // the shell inherited the current directory
+        releaseCurDirs();
+
         cwait( NULL, m_pid_comspec, WAIT_CHILD );
 
         VioDeRegister();
