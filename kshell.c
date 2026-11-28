@@ -642,12 +642,12 @@ static VOID drawCharStringPosAt( HAB hab, PKSHELLDATA pKShellData, HPS hps, USHO
 VOID setTitle( HWND hwnd )
 {
     PKSHELLDATA pksd = WinQueryWindowPtr( hwnd, 0 );
-    CHAR szTitle[ 80 ];
+    CHAR szTitle[ 80 + CCHMAXPATH ];
 
-    snprintf( szTitle, sizeof( szTitle ), "%s%s %dx%d",
+    snprintf( szTitle, sizeof( szTitle ), "%s%s %dx%d - %s",
               pksd->ulKShellMode == KSM_SCROLLBACK ? "Scroll Back Mode : " :
               pksd->ulKShellMode == KSM_MARKING ? "Marking Mode : " : "",
-              BASE_TITLE, m_vmi.col, m_vmi.row );
+              BASE_TITLE, m_vmi.col, m_vmi.row, pksd->szCwd );
     WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), szTitle );
 }
 
@@ -2272,8 +2272,13 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
         {
             PSZ pszCwd = PVOIDFROMMP( mp1 );
 
-            strncpy( pKShellData->szCwd, pszCwd, sizeof( pKShellData->szCwd ) - 1 );
-            pKShellData->szCwd[ sizeof( pKShellData->szCwd ) - 1 ] = '\0';
+            if( strcmp( pKShellData->szCwd, pszCwd ))
+            {
+                strncpy( pKShellData->szCwd, pszCwd, sizeof( pKShellData->szCwd ) - 1 );
+                pKShellData->szCwd[ sizeof( pKShellData->szCwd ) - 1 ] = '\0';
+
+                setTitle( hwnd );
+            }
 
             free( pszCwd );
             return 0;
