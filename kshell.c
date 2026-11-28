@@ -642,13 +642,24 @@ static VOID drawCharStringPosAt( HAB hab, PKSHELLDATA pKShellData, HPS hps, USHO
 VOID setTitle( HWND hwnd )
 {
     PKSHELLDATA pksd = WinQueryWindowPtr( hwnd, 0 );
+    HWND hwndFrame = WinQueryWindow( hwnd, QW_PARENT );
     CHAR szTitle[ 80 + CCHMAXPATH ];
+    HSWITCH hsw;
+    SWCNTRL swc;
 
     snprintf( szTitle, sizeof( szTitle ), "%s%s %dx%d - %s",
               pksd->ulKShellMode == KSM_SCROLLBACK ? "Scroll Back Mode : " :
               pksd->ulKShellMode == KSM_MARKING ? "Marking Mode : " : "",
               BASE_TITLE, m_vmi.col, m_vmi.row, pksd->szCwd );
-    WinSetWindowText( WinWindowFromID( WinQueryWindow( hwnd, QW_PARENT ), FID_TITLEBAR ), szTitle );
+    WinSetWindowText( WinWindowFromID( hwndFrame, FID_TITLEBAR ), szTitle );
+
+    hsw = WinQuerySwitchHandle( hwndFrame, 0 );
+    if( hsw && !WinQuerySwitchEntry( hsw, &swc ))
+    {
+        strncpy( swc.szSwtitle, szTitle, MAXNAMEL );
+        swc.szSwtitle[ MAXNAMEL ] = '\0';
+        WinChangeSwitchEntry( hsw, &swc );
+    }
 }
 
 VOID updateWindow( HWND hwnd, PRECTL prcl )
