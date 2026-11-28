@@ -1785,6 +1785,18 @@ MRESULT EXPENTRY windowProc( HWND hwnd, ULONG msg, MPARAM mp1, MPARAM mp2 )
                 {
                     switch( uchScan )
                     {
+                        case 0x48:  // PAD Up
+                        case 0x61:  // Up
+                            fsFlags |= KC_VIRTUALKEY;
+                            usVk = VK_UP;
+                            break;
+
+                        case 0x50:  // PAD Down
+                        case 0x66:  //
+                            fsFlags |= KC_VIRTUALKEY;
+                            usVk = VK_DOWN;
+                            break;
+
                         case 0x49:  // PAD PgUp
                         case 0x62:  // PgUp
                             fsFlags |= KC_VIRTUALKEY;
